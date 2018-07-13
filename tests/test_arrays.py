@@ -47,3 +47,16 @@ class TestNamedArrayList(object):
         assert al.shape == shape
         assert al.dtype == al.dtype
         assert al.ndim == len(shape)
+
+class TestBasis(object):
+
+    def test_expansion(self):
+        qobj_list = [qt.identity(2), qt.sigmax(), qt.sigmay(), qt.sigmaz()]
+        al = btu.Basis(qobj_list, ['I', 'X', 'Y', 'Z'])
+
+        assert np.allclose(al.expansion(al), np.eye(4))
+
+        x = qt.identity(2).full() + 3 * qt.sigmax().full()
+        assert np.allclose(al.expansion(x), [1,3,0,0])
+
+        

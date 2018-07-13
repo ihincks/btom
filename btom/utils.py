@@ -60,12 +60,15 @@ class NamedArrayList(ArrayList):
             )
 
 class Basis(NamedArrayList):
-    def __init__(self, arrays, names, orthogonal=True):
-        super(OperatorBasis, self).__init__(arrays, names)
+    def __init__(self, arrays, names, orthogonal=True, normalize=False):
+        super(Basis, self).__init__(arrays, names)
         if self.ndim != 2:
             raise ValueError('OperatorBasis must be an ArrayList of rectangular matrices')
         self.norms = np.sum(self.flat.conj() * self.flat, axis=-1)
         self.orthogonal = orthogonal
+        if normalize:
+            self._array = self._array / self.norms
+            self.norms = 1
 
     def expansion(self, array):
         if self.orthogonal:
@@ -74,15 +77,19 @@ class Basis(NamedArrayList):
                     self.flat.conj()[:,np.newaxis,:] *
                     array.flat[np.newaxis,:,:],
                     axis=-1
-                )
+                ) / self.norms
             elif array.shape == self.shape:
-                return np.sum(self.flat.conj() * array.flatten()[np.newaxis,:], axis=-1)
+                return np.sum(
+                    self.flat.conj() *
+                    array.flatten()[np.newaxis,:],
+                    axis=-1
+                ) / self.norms
             elif array.ndim == self.ndim+1 and array.shape[1:] == self.shape:
                 return np.sum(
                     self.flat.conj()[:,np.newaxis,:] *
                     array.reshape(array.shape[0],-1)[np.newaxis,:,:],
                     axis=-1
-                )
+                ) / self.norms
             else:
                 raise ValueError('Input incompatible with this basis.')
         else:
