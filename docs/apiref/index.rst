@@ -9,3 +9,4 @@ API Reference
 
     samplers
     data
+    posterior
