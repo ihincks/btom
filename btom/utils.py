@@ -4,6 +4,9 @@ import dill
 import numpy as np
 from qutip import Qobj
 
+PACKAGE_DIR = os.path.abspath(os.path.dirname(__file__))
+BUILTIN_MODEL_DIR = os.path.join(PACKAGE_DIR, "stan")
+
 class ArrayList(object):
     """
     Represents a list of arrays.
@@ -97,27 +100,32 @@ class Basis(NamedArrayList):
 
 class StanModelFactory(object):
     """
-    Class to construct instances of pystan.StanModel, which first checks
-    if the model has already been compiled and saved to disk, loading it
-    if it has.
+    Class to construct instances of :py:class:`pystan.StanModel`, which first
+    checks if the model has already been compiled and saved to disk, loading it
+    if it has. Models are saved to disk through pickling, using the
+    extension `.pkl`, and stored in the same folder as the given
+    text stan program, which usually has the extension `.stan`.
 
-    :param str filename: filename of stan code to load
-    :param storage_folder: list of strings specifying storage folder
+    :param str filename: Filename of stan code to load, including path and
+    extension. The pickled model will be stored in the same folder.
     """
-    STORAGE_FOLDER = ['.']
-    def __init__(self, filename, storage_folder=STORAGE_FOLDER):
-        self._filename = filename
-        storage_filename = os.path.splitext(os.path.basename(filename))[0] + '.pkl'
-        self._storage_name = os.path.join(os.path.join(*storage_folder), storage_filename)
+    def __init__(self, filename):
+        storage_folder = os.path.dirname(os.path.abspath(filename))
+        filename = os.path.basename(filename)
+        self.stan_filename = os.path.join(storage_folder, filename)
+        self.storage_filename = os.path.join(
+                storage_folder,
+                os.path.splitext(filename)[0] + '.pkl'
+            )
         self._model = None
 
     def _load_model_from_disk(self):
         """
-        Tries to load a pickled StanModel object from _storage_name. Returns
+        Tries to load a pickled StanModel object from storage_filename. Returns
         this, or None if it fails.
         """
         try:
-            with open(self._storage_name, 'rb') as f:
+            with open(self.storage_filename, 'rb') as f:
                 model = dill.load(f)
         except IOError:
             model = None
@@ -128,16 +136,16 @@ class StanModelFactory(object):
         """
         Pickles the given model and saves it to file.
 
-        :param model: StanModel object to pickle and save to _storage_name
+        :param model: StanModel object to pickle and save to storage_filename
         """
-        with open(self._storage_name, 'wb') as f:
+        with open(self.storage_filename, 'wb') as f:
             dill.dump(model, f)
 
     def _get_model_code(self):
         """
         Reads _filename and returns its contents as a string.
         """
-        with open(self._filename, 'r') as f:
+        with open(self.stan_filename, 'r') as f:
             model_code = "".join(f.read())
         return model_code
 
@@ -154,14 +162,14 @@ class StanModelFactory(object):
 
     def _get_model(self):
         """
-        Loads and unpickles the StanModel from disk if it exists, and Returns
+        Loads and unpickles the StanModel from disk if it exists, and returns
         it if it is up-to-date. Otherwise, compiles a new StanModel.
         """
         model = self._load_model_from_disk()
         if model is not None and model.model_code == self._get_model_code():
             return model
 
-        model = ps.StanModel(self._filename)
+        model = ps.StanModel(self.stan_filename)
         self._save_model_to_disk(model)
         return model
 
@@ -174,3 +182,7 @@ class StanModelFactory(object):
         if not self._up_to_date():
             self._model = self._get_model()
         return self._model
+
+    @classmethod
+    def load_builtin(cls, filename):
+        return StanModelFactory(os.path.join(BUILTIN_MODEL_DIR, filename))

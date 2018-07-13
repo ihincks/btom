@@ -3,8 +3,9 @@ import abc
 import btom.utils as btu
 
 __all__ = [
-    'TomographySampler', 'StanTomographySampler',
-    'BinomialGinibreSampler', 'PoissonGinibreSampler'
+    'TomographySampler',
+    'StanTomographySampler', 'StanStateSampler',
+    'BinomialGinibreStateSampler', 'PoissonGinibreStateSampler'
 ]
 
 def cartesian_factors_to_states(x, y):
@@ -15,51 +16,198 @@ def cartesian_factors_to_states(x, y):
     return (rho_real + 1j * rho_imag) / tr[:,np.newaxis,np.newaxis]
 
 class TomographySampler(metaclass=abc.ABCMeta):
+    """
+    Instances of this abstract base class yield samples of a distribution
+    over tomography quantities (ie states or processes).
+    """
     @abc.abstractmethod
     def sample(self):
+        """
+        Returns samples from a distribution of tomography quantities.
+        """
         pass
 
 class StanTomographySampler(TomographySampler):
-    def __init__(self, stan_model, n_chains=3, n_iter=500):
-        self.n_chains = 3
-        self.n_iter = n_iter
-        self.stan_model = stan_model
+    """
+    A :py:class:`TomographySampler` that draws samples by executing a stan
+    program. This class is still abstract as it does not implement the
+    :py:meth:`~TomographySampler.sample` method.
+
+    :param StanModelFactory stan_model_factory: The model factor for the stan
+        program.
+    :param int n_chains: The number of MCMC chains to run when sampling.
+    :param int n_iter: The number of iterations per chain. This includes
+        burn-in, so only half of this number will be reported per chain.
+    :param dict sampling_kwargs: Other named argements to pass to the
+        model's sampling method.
+    """
+    def __init__(self, stan_model_factory, n_chains=3, n_iter=500, sampling_kwargs=None):
+        self._n_chains = n_chains
+        self._n_iter = n_iter
+        self._stan_model_factory = stan_model_factory
+        self._sampling_kw_args = {} if sampling_kwargs is None else sampling_kwargs
+
+    @property
+    def n_chains(self):
+        """
+        The number of MCMC chains to run when sampling.
+
+        :rtype: ``int``
+        """
+        return self._n_chains
+
+    @property
+    def n_iter(self):
+        """
+        The number of iterations per chain. This includes burn-in, so only half
+        of this number will be reported per chain.
+
+        :rtype: ``int``
+        """
+        return self._n_iter
+
+    @property
+    def stan_model(self):
+        """
+        The stan model object of this sampler's model factory.
+
+        :rtype: :py:class:`pystan.StanModel`
+        """
+        return self._stan_model_factory.model
 
     def check_data(self, stan_data):
+        """
+        Checks goodness given ``stan_data`` dictionary relative to this sampler;
+        this method is run before sampling, and raises errors if it
+        detects problems.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        """
         pass
 
+    def modify_stan_data(self, stan_data):
+        """
+        Modifies the ``stan_data`` dictionary prior to sampling. This can
+        be used to specify parameterizations of the prior distribution,
+        for example.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        :returns: An updated ``stan_data`` dictionary that should be valid
+             to run on this sampler's stan model.
+        :rtype: ``dict``
+        """
+        return stan_data
+
     def _raw_sample(self, stan_data):
+        """
+        Runs the model's sampler and returns the pystan fit object.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        """
+        stan_data = self.modify_stan_data(stan_data)
         self.check_data(stan_data)
-        fit = self.stan_model(
+        return self.stan_model.sampling(
                 stan_data,
                 iter=self.n_iter,
-                chains=self.n_chains
+                chains=self.n_chains,
+                **self._sampling_kw_args
             )
-        return fit.extract()
 
-class BinomialGinibreSampler(StanTomographySampler):
-    def __init__(self, ginibre_dim=None, n_chain=3, n_iter=500):
-        stan_model = btu.StanModelFactory('').model
-        super(BinomialGinibreSampler, self).__init__(
-                stan_model,
-                n_chains=n_chains, n_iter=n_iter
+class StanStateSampler(StanTomographySampler):
+    """
+    A :py:class:`StanTomographySampler` which samples quantum states
+    (density matrices). Note that this assumes the given stan program
+    generates quantities with names ``'rho_real'`` and ``'rho_imag'`` that
+    report the real and imaginary parts of the state, respectively.
+
+    :param StanModelFactory stan_model_factory: The model factor for the stan
+        program.
+    :param int n_chains: The number of MCMC chains to run when sampling.
+    :param int n_iter: The number of iterations per chain. This includes
+        burn-in, so only half of this number will be reported per chain.
+    :param dict sampling_kwargs: Other named argements to pass to the
+        model's sampling method.
+    """
+    def sample(self, stan_data):
+        """
+        Samples quantum states using this sampler's stan program.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        :returns: An array of shape ``(n_samples, d, d)`` where ``n_samples``
+             is the number of samples, ``d`` is the Hilbert space dimension,
+             and the entry at ``[idx,:,:]`` is a density matrix.
+        :rtype: ``np.ndarray``
+        """
+        fit = self._raw_sample(stan_data)
+        return fit['rho_real'] + 1j * fit['rho_imag']
+
+class BinomialGinibreStateSampler(StanStateSampler):
+    r"""
+    A :py:class:`StanStateSampler` whose measurements are
+    positive operators :math:`\{M_1,\ldots,M_m\}` such that
+    :math:`0\leq M_k \leq \mathbb{I}`, using a binomial likelihood as the
+    data distribution. The prior distribution is the Ginibre ensemble.
+
+    :param int ginibre_dim: The maximum rank of density operators with
+        prior support. If ``None``, the dimension of the Hilbert space will
+        be used, so that maximum rank is supported.
+    :param int n_chains: The number of MCMC chains to run when sampling.
+    :param int n_iter: The number of iterations per chain. This includes
+        burn-in, so only half of this number will be reported per chain.
+    :param dict sampling_kwargs: Other named argements to pass to the
+        model's sampling method.
+    """
+    def __init__(self, ginibre_dim=None, n_chains=3, n_iter=500, sampling_kwargs=None):
+        super(BinomialGinibreStateSampler, self).__init__(
+                btu.StanModelFactory.load_builtin('binomial-ginibre.stan'),
+                n_chains=n_chains, n_iter=n_iter,
+                sampling_kwargs=sampling_kwargs
             )
-        self.ginibre_dim = ginibre_dim
+        self._ginibre_dim = ginibre_dim
+
+    @property
+    def ginibre_dim(self):
+        """
+        The maximum rank of density operators with prior support.
+
+        :type: ``int``
+        """
+        return self._ginibre_dim
 
     def check_data(self, stan_data):
+        """
+        Checks goodness given ``stan_data`` dictionary relative to this sampler;
+        this method is run before sampling, and raises errors if it
+        detects problems.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        """
         for key in ['D', 'K', 'm', 'M_real', 'M_imag', 'n', 'k']:
             if key not in stan_data:
-                raise ValueError(('This stan data does not contain the '
+                raise ValueError(('This stan data does not contain a '
                     'necessary entry for {}').format(key))
 
-    def sample(self, stan_data):
-        sd = stan_data.copy()
-        sd['K'] = sd['D'] if self.ginibre_dim is None else self.ginibre_dim
-        params = self._raw_sample(stan_data)
-        return cartesian_factors_to_states(
-                params['X_real'],
-                params['X_imag']
-            )
+    def modify_stan_data(self, stan_data):
+        """
+        Modifies the ``stan_data`` dictionary prior to sampling by updating it
+        with :py:attr:`ginibre_dim`.
 
-class PoissonGinibreSampler(StanTomographySampler):
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        :returns: An updated ``stan_data`` dictionary that should be valid
+             to run on this sampler's stan model.
+        :rtype: ``dict``
+        """
+        if self.ginibre_dim is None:
+            stan_data['K'] = stan_data['D']
+        else:
+            stan_data['X'] = self.ginibre_dim
+        return stan_data
+
+class PoissonGinibreStateSampler(StanStateSampler):
     pass
