@@ -27,20 +27,6 @@ parameters {
 	matrix[D,K] X_real;
 	matrix[D,K] X_imag;
 }
-// transformed parameters {
-// 	// real and imaginary parts of density matrix
-// 	matrix[D,D] rho_real;
-// 	matrix[D,D] rho_imag;
-//
-// 	rho_real = X_real * X_real' + X_imag * X_imag';
-// 	rho_imag = X_real * X_imag';
-// 	rho_imag -= rho_imag;
-// 	{
-// 		real t = trace(rho_real);
-// 		rho_real = rho_real / t;
-// 		rho_imag = rho_imag / t;
-// 	}
-// }
 model {
 	// Ginibre DxK prior
 	for (idx_row in 1:D) {
@@ -58,5 +44,19 @@ model {
 			) / t;
 			k[idx_m] ~ binomial(n[idx_m], p);
 		}
+	}
+}
+generated quantities {
+	// real and imaginary parts of density matrix
+	matrix[D,D] rho_real;
+	matrix[D,D] rho_imag;
+
+	rho_real = X_real * X_real' + X_imag * X_imag';
+	rho_imag = X_real * X_imag';
+	rho_imag -= rho_imag;
+	{
+		real t = trace(rho_real);
+		rho_real = rho_real / t;
+		rho_imag = rho_imag / t;
 	}
 }
