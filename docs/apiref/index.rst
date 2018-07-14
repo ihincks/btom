@@ -10,3 +10,4 @@ API Reference
     samplers
     data
     posterior
+    bases
