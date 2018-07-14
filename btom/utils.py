@@ -7,15 +7,35 @@ from qutip import Qobj
 PACKAGE_DIR = os.path.abspath(os.path.dirname(__file__))
 BUILTIN_MODEL_DIR = os.path.join(PACKAGE_DIR, "stan")
 
+def gell_mann_basis(subsystem_dims):
+
+
+def pauli_basis(n_qubits=2):
+    return gell_mann_basis([2] * n_qubits)
+
 class ArrayList(object):
     """
     Represents a list of arrays.
     """
-    def __init__(self, arrays):
+    def __init__(self, arrays, names = None):
         if isinstance(arrays[0], Qobj):
             self._array = np.array([a.full() for a in arrays])
         else:
             self._array = np.array(arrays)
+
+        if names is None:
+            self._names = ['{}'.format(idx) for idx in range(self.n_arrays)]
+        else:
+            self._names = names
+            if len(self._names) != self.n_arrays:
+                raise ValueError((
+                    'The number of names ({}) must match the number of '
+                    'arrays ({})').format(len(names), self.n_arrays)
+                )
+
+    @property
+    def names(self):
+        return self._names
 
     @property
     def value(self):
@@ -49,20 +69,7 @@ class ArrayList(object):
         if isinstance(test, np.ndarray):
             pass
 
-class NamedArrayList(ArrayList):
-    """
-    An :py:class:`ArrayList` where every array has a name string.
-    """
-    def __init__(self, arrays, names):
-        super(NamedArrayList, self).__init__(arrays)
-        self.names = names
-        if len(names) != self.n_arrays:
-            raise ValueError((
-                'The number of names ({}) must match the number of '
-                'arrays ({})').format(len(names), self.n_arrays)
-            )
-
-class Basis(NamedArrayList):
+class Basis(ArrayList):
     def __init__(self, arrays, names, orthogonal=True, normalize=False):
         super(Basis, self).__init__(arrays, names)
         if self.ndim != 2:
