@@ -14,12 +14,12 @@ data {
 	int<lower=1> K;                      // Number of Ginibre subsystems
 
 	// Measurement operators (M_real+iM_imag should be positive, but < I)
-	int<lower=1> m;                      // Number of measurement types
+	int<lower=0> m;                      // Number of measurement types
 	matrix[D,D] M_real[m];               // Real part of measurement ops
 	matrix[D,D] M_imag[m];               // Imag part of measurement ops
 
 	// Binomial specific data model
-	int<lower=1> n[m];                   // Total measurements per type
+	int<lower=0> n[m];                   // Total measurements per type
 	int<lower=0> k[m];                   // Data
 }
 parameters {
@@ -53,7 +53,7 @@ generated quantities {
 
 	rho_real = X_real * X_real' + X_imag * X_imag';
 	rho_imag = X_real * X_imag';
-	rho_imag -= rho_imag;
+	rho_imag -= rho_imag';
 	{
 		real t = trace(rho_real);
 		rho_real = rho_real / t;
