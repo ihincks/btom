@@ -1,6 +1,7 @@
 import numpy as np
 import abc
 import btom.utils as btu
+import warnings
 
 __all__ = [
     'TomographySampler',
@@ -112,12 +113,17 @@ class StanTomographySampler(TomographySampler):
         """
         stan_data = self.modify_stan_data(stan_data)
         self.check_data(stan_data)
-        return self.stan_model.sampling(
-                stan_data,
-                iter=self.n_iter,
-                chains=self.n_chains,
-                **self._sampling_kw_args
-            )
+
+        with warnings.catch_warnings():
+            # getting a dumb future warning to do with np.floating; suppress it
+            warnings.simplefilter("ignore")
+            fit = self.stan_model.sampling(
+                    stan_data,
+                    iter=self.n_iter,
+                    chains=self.n_chains,
+                    **self._sampling_kw_args
+                )
+        return fit
 
 class StanStateSampler(StanTomographySampler):
     """
