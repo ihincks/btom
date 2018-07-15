@@ -47,7 +47,9 @@ def gell_mann_basis(dims, normalize=True):
     """
     try:
         if len(dims) > 1:
-            return gell_mann_basis(dims[0]).kron(gell_mann_basis(dims[1:]))
+            b_first = gell_mann_basis(dims[0], normalize=normalize)
+            b_rest = gell_mann_basis(dims[1:], normalize=normalize)
+            return b_first.kron(b_rest)
         else:
             dim = dims[0]
     except TypeError:
@@ -92,13 +94,13 @@ def pauli_basis(n_qubits=1, normalize=True):
         default.
     :rtype: :py:class:`Basis`
     """
-    return gell_mann_basis([2] * n_qubits)
+    return gell_mann_basis([2] * n_qubits, normalize=normalize)
 
 def canonical_basis(subsystem_shapes):
     """
     Returns the canonical :py:class:`Basis` of the given shape.
 
-    Example:
+    .. code-block:: python
 
         import btom as bt
         // canonical basis for qutrit
@@ -341,7 +343,7 @@ class Basis(ArrayList):
             raise NotImplementedError('Non-orthogonal bases are not possible at the moment.')
         if normalize:
             self._array = self._array / self.norms[(np.s_[:],) + (None,) * self.ndim]
-            self.norms = 1
+            self.norms = np.ones(self.n_arrays)
 
     def expansion(self, array):
         """
@@ -365,7 +367,7 @@ class Basis(ArrayList):
                     self.flat.conj()[:,np.newaxis,:] *
                     array.flat[np.newaxis,:,:],
                     axis=-1
-                ) / self.norms
+                ) / self.norms[:,np.newaxis]
             elif array.shape == self.shape:
                 return np.sum(
                     self.flat.conj() *
