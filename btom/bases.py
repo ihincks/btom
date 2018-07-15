@@ -154,6 +154,15 @@ class ArrayList(object):
     """
     Represents a list of arrays with names attached to each one.
 
+    Instances are subscriptable, returning a new :py:class:`ArrayList` with
+    the selected elements. Note that this will result in a view of an existing
+    array if the indexing is not fancy.
+
+        >>> import btom as bt
+        >>> b = bt.ArrayList(np.eye(5), names=[x for x in 'ABCDE'])
+        >>> b[:3]       // has A, B, C
+        >>> b[[2,4,3]]  // has C, E, D
+
     :param arrays: A list of :py:class:`qutip.Qobj` objects, or anything
         castable into a numeric :py:class:`np.ndarray` array (with the
         first index indexing over arrays).
@@ -209,8 +218,14 @@ class ArrayList(object):
         """
         return self._array.reshape(self.n_arrays, -1)
 
-    def __getitem__(self, *key):
-        return self.value.__getitem__(*key)
+    def __getitem__(self, key):
+        arr = self.value[key]
+        try:
+            names = self.names[key]
+        except TypeError:
+            names = [self.names[idx] for idx in key]
+        return ArrayList(arr, names=names, name_prefix=self._np, name_suffix=self._ns)
+
 
     @property
     def n_arrays(self):
@@ -344,6 +359,18 @@ class Basis(ArrayList):
         if normalize:
             self._array = self._array / self.norms[(np.s_[:],) + (None,) * self.ndim]
             self.norms = np.ones(self.n_arrays)
+
+    def __getitem__(self, key):
+        arr = self.value[key]
+        try:
+            names = self.names[key]
+        except TypeError:
+            names = [self.names[idx] for idx in key]
+        return Basis(
+                arr, names=names,
+                name_prefix=self._np, name_suffix=self._ns,
+                orthogonal=self.orthogonal
+            )
 
     def expansion(self, array):
         """
