@@ -21,9 +21,12 @@ class TomographySampler(metaclass=abc.ABCMeta):
     over tomography quantities (ie states or processes).
     """
     @abc.abstractmethod
-    def sample(self):
+    def sample(self, data):
         """
         Returns samples from a distribution of tomography quantities.
+
+        :param btom.TomographyData data: Tomography data compatible
+            with this sampler.
         """
         pass
 
@@ -131,18 +134,18 @@ class StanStateSampler(StanTomographySampler):
     :param dict sampling_kwargs: Other named argements to pass to the
         model's sampling method.
     """
-    def sample(self, stan_data):
+    def sample(self, data):
         """
         Samples quantum states using this sampler's stan program.
 
-        :param dict stan_data: The ``data`` argument passed to the stan model's
-            sampler.
+        :param btom.TomographyData data: Tomography data compatible
+            with this sampler.
         :returns: An array of shape ``(n_samples, d, d)`` where ``n_samples``
              is the number of samples, ``d`` is the Hilbert space dimension,
              and the entry at ``[idx,:,:]`` is a density matrix.
         :rtype: ``np.ndarray``
         """
-        fit = self._raw_sample(stan_data)
+        fit = self._raw_sample(data.stan_data)
         return fit['rho_real'] + 1j * fit['rho_imag']
 
 class BinomialGinibreStateSampler(StanStateSampler):
