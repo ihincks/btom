@@ -1,5 +1,7 @@
 import numpy as np
 from qutip import Qobj
+from itertools import product
+from functools import reduce
 
 
 def _format_float_as_latex(c, tol=1e-10):
@@ -92,6 +94,60 @@ def pauli_basis(n_qubits=1, normalize=True):
     """
     return gell_mann_basis([2] * n_qubits)
 
+def canonical_basis(subsystem_shapes):
+    """
+    Returns the canonical :py:class:`Basis` of the given shape.
+
+    Example:
+
+        import btom as bt
+        // canonical basis for qutrit
+        b = bt.canonical_basis(3)
+        // canonical basis for qutrit tensored with qubit
+        b = bt.canonical_basis([3,2])
+        // canonical basis for matrices of shape (3,2)
+        b = bt.canonical_basis((3,2))
+        // canonical basis for matrices of shape (2,2) tensored with qutrit
+        b = bt.canonical_basis([(2,2),3])
+
+    .. note:
+
+        The argument to this function makes a strong distiction between
+        lists and tuples, the former corresponding to subsystems, and the
+        latter corresponding to subsystem shapes.
+
+    :param subsystem_shapes: An integer specifying the dimension of a vector
+        basis, or a list of integers specifying the dimensions of each
+        vector subsystem. Integers can be replaced by tuples of integers,
+        specifying array shapes, for matrix and higher index bases.
+    :returns: A basis with elements of the form ``[0,...,0,1,0,...,0]`` for
+        vectors, of form ``[[0,...,0],...,[0,...,0,1,0,...,0],...,[0,...,0]]``
+        for matrices, and so on for higher dimensional arrays.
+    :rtype: :py:class:`Basis`
+    """
+    ss = subsystem_shapes
+    if isinstance(ss, list) and len(ss) > 1:
+        return canonical_basis(ss[0]).kron(canonical_basis(ss[1:]))
+    elif isinstance(ss, list):
+        return canonical_basis(ss[0])
+
+    if not isinstance(ss, tuple):
+        ss = (ss,)
+    dim = np.prod(ss)
+
+    arr = np.eye(dim).reshape(dim, *ss)
+    if len(ss) == 1:
+        names = ['{:d}'.format(idx) for idx in range(ss[0])]
+        npre, nsuf = r'|', r'\rangle'
+    else:
+        names = [
+                ('E_{{' + '{}'*len(ss) + '}}').format(*idx)
+                for idx in product(*[range(d) for d in ss])
+            ]
+        npre, nsuf = '', ''
+    return Basis(arr, names=names, name_suffix=nsuf, name_prefix=npre)
+
+
 class ArrayList(object):
     """
     Represents a list of arrays with names attached to each one.
@@ -100,8 +156,10 @@ class ArrayList(object):
         castable into a numeric :py:class:`np.ndarray` array (with the
         first index indexing over arrays).
     :param list names: A list of names, one for each of the arrays.
+    :param str name_prefix: A string to prepend to each name.
+    :param str name_suffix: A string to append to each name.
     """
-    def __init__(self, arrays, names = None):
+    def __init__(self, arrays, names = None, name_prefix='', name_suffix=''):
         if isinstance(arrays[0], Qobj):
             self._array = np.array([a.full() for a in arrays])
         else:
@@ -116,6 +174,8 @@ class ArrayList(object):
                     'The number of names ({}) must match the number of '
                     'arrays ({})').format(len(names), self.n_arrays)
                 )
+        self._np = name_prefix
+        self._ns = name_suffix
 
     @property
     def names(self):
@@ -124,7 +184,7 @@ class ArrayList(object):
 
         :type: ``list``
         """
-        return self._names
+        return [self._np + name + self._ns for name in self._names]
 
     @property
     def value(self):
@@ -203,12 +263,13 @@ class ArrayList(object):
                 self.value[:,np.newaxis,...], other.value[np.newaxis,...]
             )
         new_arr = new_arr.reshape((-1,) + new_arr.shape[2:])
-        names = [tn + sep_str + on for tn in self.names for on in other.names]
-        return type(self)(new_arr, names)
+        names = [tn + sep_str + on for tn in self._names for on in other._names]
+        return type(self)(new_arr, names, name_prefix=self._np, name_suffix=self._ns)
 
     def _repr_html_(self):
         # modified from https://github.com/QInfer/python-qinfer/blob/e90cc57d50f1b48148dbd0c671eff6246dda6c31/src/qinfer/tomography/bases.py
-        if max(self.shape) < 6:
+        max_shape_allowed = 6 if self.ndim >= 2 else 10
+        if max(self.shape) < max_shape_allowed and self.ndim <= 2:
             element_strings = [r"""
                 {label} =
                 \left(\begin{{matrix}}
@@ -221,7 +282,7 @@ class ArrayList(object):
                     ]),
                     label=label
                 )
-                for element, label in zip(self.value, self.names)
+                for element, label in zip(np.atleast_3d(self.value), self.names)
             ]
 
             return r"""
@@ -263,11 +324,17 @@ class Basis(ArrayList):
     :param list names: A list of names, one for each of the arrays.
     :param bool orthogonal: Whether this basis is orthogonal.
     :param bool normalize: Whether to normalize the input arrays.
+    :param str name_prefix: A string to prepend to each name.
+    :param str name_suffix: A string to append to each name.
     """
-    def __init__(self, arrays, names, orthogonal=True, normalize=False):
-        super(Basis, self).__init__(arrays, names)
-        if self.ndim != 2:
-            raise ValueError('OperatorBasis must be an ArrayList of rectangular matrices')
+    def __init__(self, arrays, names,
+            orthogonal=True, normalize=False,
+            name_prefix='', name_suffix=''
+        ):
+        super(Basis, self).__init__(
+                arrays, names,
+                name_prefix=name_prefix, name_suffix=name_suffix
+            )
         self.norms = np.sum(self.flat.conj() * self.flat, axis=-1)
         self.orthogonal = orthogonal
         if not orthogonal:
