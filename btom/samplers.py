@@ -215,7 +215,7 @@ class BinomialGinibreStateSampler(StanStateSampler):
         if self.ginibre_dim is None:
             stan_data['K'] = stan_data['D']
         else:
-            stan_data['X'] = self.ginibre_dim
+            stan_data['K'] = self.ginibre_dim
         return stan_data
 
 class PoissonGinibreStateSampler(StanStateSampler):
