@@ -346,6 +346,53 @@ class ArrayList(object):
         names = [tn + self._nj + on for tn in self._names for on in other._names]
         return type(self)(new_arr, names=self._name_tuple(names))
 
+    def flatten(self):
+        """
+        Flattens each array in this list.
+
+        :returns: This array list, where each array in the list has
+            been flattened. Does not return a new instance.
+        :rtype: :py:class:`ArrayList`
+        """
+        self._array = self.flat
+        self._np = '|'
+        self._ns = r'\rangle'
+        return self
+
+    def outer_product(self, other=None):
+        r"""
+        Returns the outer product between vector array lists
+        (i.e. :py:attr:`.ndim` is `1`). If another  array list is not provided,
+        the outer product is between this array list and itself.
+
+        If this array list has elements :math:`|1\rangle\ldots|n\rangle` and
+        the other array list has elements :math:`|1\rangle\ldots|m\rangle`, then
+        the resulting array list has elements :math:`|i\rangle\langle j|` for
+        :math:`1\leq i\leq n` and :math:`1\leq j\leq n`.
+
+            >>> import btom as bt
+            >>> bt.canonical_basis(2).outer_product()
+            >>> bt.pauli_basis().flatten().outer_product()
+
+        :param btom.ArrayList other: The other array list to take the
+            outer product with.
+
+        :returns: A new array list with ``self.n_arrays * other.n_arrays``
+            members each with shape ``(self.shape[0], other.shape[0])``.
+        :rtype: :py:class:`ArrayList`
+        """
+        if other is None:
+            other = self
+        if self.ndim > 1 or other.ndim > 1:
+            raise ValueError('outer_product is only available for 1D array lists')
+
+        arr = self.value.conj()[:,np.newaxis,:,np.newaxis] * other.value[np.newaxis,:,np.newaxis,:]
+        arr = arr.reshape(-1, *arr.shape[-2:])
+        pre, suf = r'\langle ', '|' if self._np == '|' and self._ns == r'\rangle' \
+            else (self._np, self._ns)
+        names = [on + pre + tn + suf for on, tn in product(other.names, self._names)]
+        return ArrayList(arr, names=names)
+
     @property
     def _class_name_(self):
         return type(self).__name__
@@ -450,6 +497,10 @@ class Basis(ArrayList):
         return Basis(
                 arr, names=self._name_tuple(names), orthogonal=self.orthogonal
             )
+
+    def outer_product(self, other=None):
+        al = super(Basis, self).outer_product(other)
+        return Basis(al.value, names=al.names, orthogonal=self.orthogonal)
 
     @property
     def _class_name_(self):
