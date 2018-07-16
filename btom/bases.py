@@ -33,7 +33,7 @@ def sparse_mat(dim, *triples):
         mat[idx_row, idx_col] = val
     return mat
 
-def gell_mann_basis(dims, normalize=True):
+def gell_mann_basis(dims, normalize=False):
     """
     Returns a :py:class:`Basis` of the Gell-Mann generalized basis
     for each subsystem, tensored together.
@@ -83,7 +83,7 @@ def gell_mann_basis(dims, normalize=True):
             normalize=normalize
         )
 
-def pauli_basis(n_qubits=1, normalize=True):
+def pauli_basis(n_qubits=1, normalize=False):
     """
     Returns a :py:class:`Basis` of the n-qubit Pauli basis.
 
@@ -147,7 +147,7 @@ def canonical_basis(subsystem_shapes):
                 for idx in product(*[range(d) for d in ss])
             ]
         npre, nsuf = '', ''
-    return Basis(arr, names=names, name_suffix=nsuf, name_prefix=npre)
+    return Basis(arr, names=(npre, nsuf, '', names))
 
 
 class ArrayList(object):
@@ -166,27 +166,36 @@ class ArrayList(object):
     :param arrays: A list of :py:class:`qutip.Qobj` objects, or anything
         castable into a numeric :py:class:`np.ndarray` array (with the
         first index indexing over arrays).
-    :param list names: A list of names, one for each of the arrays.
-    :param str name_prefix: A string to prepend to each name.
-    :param str name_suffix: A string to append to each name.
+    :param names: A list of name strings, one for each of the arrays.
+        Optionally, a tuple ``(prefix, suffix, joiner, [names])`` where
+        ``names`` is a list of name strings, ``prefix`` is a string that
+        prefixes each name, ``suffix`` is a string that suffixes each name,
+        and ``joiner`` is a string that joins names when this is the first
+        member of :py:meth:`~ArrayList.kron`.
     """
-    def __init__(self, arrays, names = None, name_prefix='', name_suffix=''):
+    def __init__(self, arrays, names=None):
         if isinstance(arrays[0], Qobj):
             self._array = np.array([a.full() for a in arrays])
         else:
             self._array = np.array(arrays)
 
         if names is None:
-            self._names = ['A_{{{}}}'.format(idx) for idx in range(self.n_arrays)]
+            self._names = (
+                    '', '', '',
+                    ['A_{{{}}}'.format(idx) for idx in range(self.n_arrays)]
+                )
         else:
-            self._names = names
+            if isinstance(names, tuple):
+                self._np, self._ns, self._nj, self._names = names
+            else:
+                self._np, self._ns, self._nj = '', '', ''
+                self._names = names
+
             if len(self._names) != self.n_arrays:
                 raise ValueError((
                     'The number of names ({}) must match the number of '
-                    'arrays ({})').format(len(names), self.n_arrays)
+                    'arrays ({})').format(len(self._names), self.n_arrays)
                 )
-        self._np = name_prefix
-        self._ns = name_suffix
 
     @property
     def names(self):
@@ -218,14 +227,70 @@ class ArrayList(object):
         """
         return self._array.reshape(self.n_arrays, -1)
 
+    def _name_tuple(self, rep_name=None):
+        names = self._names if rep_name is None else rep_name
+        return (self._np, self._ns, self._nj, names)
+
     def __getitem__(self, key):
         arr = self.value[key]
         try:
             names = self.names[key]
         except TypeError:
             names = [self.names[idx] for idx in key]
-        return ArrayList(arr, names=names, name_prefix=self._np, name_suffix=self._ns)
+        return ArrayList(arr, names=self._name_tuple(names))
 
+
+    def __add__(self, other):
+        if isinstance(other, ArrayList):
+            arr = self.value + other.value
+        if isinstance(other, Qobj):
+            arr = self.value + other.full()
+        else:
+            try:
+                arr = self.value + other
+            except ValueError:
+                arr = self.value + other[np.newaxis,...]
+        return ArrayList(arr, names=self._name_tuple())
+
+
+    def __mul__(self, other):
+        if isinstance(other, ArrayList):
+            arr = self.value * other.value
+        if isinstance(other, Qobj):
+            arr = self.value * other.full()
+        else:
+            try:
+                arr = self.value * other
+            except ValueError:
+                arr = self.value * other[np.newaxis,...]
+        return ArrayList(arr, names=self._name_tuple())
+
+    def __div__(self, other):
+        if isinstance(other, ArrayList):
+            arr = self.value / other.value
+        if isinstance(other, Qobj):
+            arr = self.value / other.full()
+        else:
+            try:
+                arr = self.value / other
+            except ValueError:
+                arr = self.value / other[np.newaxis,...]
+        return ArrayList(arr, names=self._name_tuple())
+
+    def __truediv__(self, other):
+        return self.__div__(other)
+
+    def dot(self, other):
+        if isinstance(other, ArrayList):
+            arr = np.matmul(self.value, other.value)
+        if isinstance(other, Qobj):
+            arr = np.dot(self.value, other.full())
+        else:
+            try:
+                arr = np.matmul(self.value, other)
+            except ValueError:
+                arr = np.matmul(self.value, other[np.newaxis,...])
+        return ArrayList(arr, names=self._name_tuple())
 
     @property
     def n_arrays(self):
@@ -261,7 +326,7 @@ class ArrayList(object):
         """
         return self.value.ndim - 1
 
-    def kron(self, other, sep_str=''):
+    def kron(self, other):
         """
         Returns a new :py:class:`ArrayList` whose elements are all
         pairwaise kronecker products this this :py:class:`ArrayList` and
@@ -269,8 +334,6 @@ class ArrayList(object):
         concatenations.
 
         :param ArrayList other: The array list to kronecker on.
-        :param str sep_str: The string to used in between names from each
-            array list.
 
         :returns: A new :py:class:`ArrayList` as described above.
         :rtype: :py:class:`ArrayList`
@@ -280,8 +343,12 @@ class ArrayList(object):
                 self.value[:,np.newaxis,...], other.value[np.newaxis,...]
             )
         new_arr = new_arr.reshape((-1,) + new_arr.shape[2:])
-        names = [tn + sep_str + on for tn in self._names for on in other._names]
-        return type(self)(new_arr, names, name_prefix=self._np, name_suffix=self._ns)
+        names = [tn + self._nj + on for tn in self._names for on in other._names]
+        return type(self)(new_arr, names=self._name_tuple(names))
+
+    @property
+    def _class_name_(self):
+        return type(self).__name__
 
     def _repr_html_(self):
         # modified from https://github.com/QInfer/python-qinfer/blob/e90cc57d50f1b48148dbd0c671eff6246dda6c31/src/qinfer/tomography/bases.py
@@ -314,7 +381,7 @@ class ArrayList(object):
                 dims=r"\times".join(map(str, self.shape)),
                 labels=u",".join(self.names),
                 elements=u",".join(element_strings),
-                type_name=type(self).__name__
+                type_name=self._class_name_
             )
         else:
             return r"""
@@ -324,7 +391,7 @@ class ArrayList(object):
             """.format(
                 dims=r"\times".join(map(str, self.shape)),
                 names=u",".join(self.names),
-                type_name=type(self).__name__
+                type_name=self._class_name_
             )
 
 class Basis(ArrayList):
@@ -341,24 +408,38 @@ class Basis(ArrayList):
     :param list names: A list of names, one for each of the arrays.
     :param bool orthogonal: Whether this basis is orthogonal.
     :param bool normalize: Whether to normalize the input arrays.
-    :param str name_prefix: A string to prepend to each name.
-    :param str name_suffix: A string to append to each name.
     """
-    def __init__(self, arrays, names,
-            orthogonal=True, normalize=False,
-            name_prefix='', name_suffix=''
+    def __init__(self, arrays, names=None,
+            orthogonal=True, normalize=False
         ):
-        super(Basis, self).__init__(
-                arrays, names,
-                name_prefix=name_prefix, name_suffix=name_suffix
-            )
-        self.norms = np.sum(self.flat.conj() * self.flat, axis=-1)
-        self.orthogonal = orthogonal
+        super(Basis, self).__init__(arrays, names=names)
+        self._sq_norms = np.sum(self.flat.conj() * self.flat, axis=-1)
+        self._orthogonal = orthogonal
         if not orthogonal:
             raise NotImplementedError('Non-orthogonal bases are not possible at the moment.')
         if normalize:
-            self._array = self._array / self.norms[(np.s_[:],) + (None,) * self.ndim]
+            self._array = self._array / np.sqrt(self._sq_norms[(np.s_[:],) + (None,) * self.ndim])
             self.norms = np.ones(self.n_arrays)
+
+        self._normalized = np.allclose(self._sq_norms, 1)
+
+    @property
+    def orthogonal(self):
+        """
+        Whether this basis is orthogonal.
+
+        :type: ``bool``
+        """
+        return self._orthogonal
+
+    @property
+    def normalized(self):
+        """
+        Whether this basis is orthogonal.
+
+        :type: ``bool``
+        """
+        return self._normalized
 
     def __getitem__(self, key):
         arr = self.value[key]
@@ -367,10 +448,20 @@ class Basis(ArrayList):
         except TypeError:
             names = [self.names[idx] for idx in key]
         return Basis(
-                arr, names=names,
-                name_prefix=self._np, name_suffix=self._ns,
-                orthogonal=self.orthogonal
+                arr, names=self._name_tuple(names), orthogonal=self.orthogonal
             )
+
+    @property
+    def _class_name_(self):
+        if self.orthogonal and self.normalized:
+            cls_name = 'Orthonormal'
+        elif self.orthogonal and not self.normalized:
+            cls_name = 'Orthogonal'
+        elif not self.orthogonal and self.normalized:
+            cls_name = 'Normalized'
+        else:
+            cls_name = ''
+        return cls_name + ' ' + type(self).__name__
 
     def expansion(self, array):
         """
@@ -394,13 +485,13 @@ class Basis(ArrayList):
                     self.flat.conj()[:,np.newaxis,:] *
                     array.flat[np.newaxis,:,:],
                     axis=-1
-                ) / self.norms[:,np.newaxis]
+                ) / self._sq_norms[:,np.newaxis]
             elif array.shape == self.shape:
                 return np.sum(
                     self.flat.conj() *
                     array.flatten()[np.newaxis,:],
                     axis=-1
-                ) / self.norms
+                ) / self._sq_norms
             else:
                 array = ArrayList(array)
                 if array.shape != self.shape:
