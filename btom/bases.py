@@ -227,6 +227,15 @@ class ArrayList(object):
         """
         return self._array.reshape(self.n_arrays, -1)
 
+    def _duplicate(self, arrays=None, names=None):
+        """
+        Returns a new :py:class:`ArrayList` instance, with the same properties
+        as this one, unless otherwise specified by the parameters given.
+        """
+        arr = self.value if arrays is None else arrays
+        names = self._name_tuple() if names is None else names
+        return ArrayList(arr, names=names)
+
     def _name_tuple(self, rep_name=None):
         names = self._names if rep_name is None else rep_name
         return (self._np, self._ns, self._nj, names)
@@ -237,7 +246,7 @@ class ArrayList(object):
             names = self.names[key]
         except TypeError:
             names = [self.names[idx] for idx in key]
-        return ArrayList(arr, names=self._name_tuple(names))
+        return self._duplicate(arrays=arr, names=names)
 
 
     def __add__(self, other):
@@ -292,6 +301,66 @@ class ArrayList(object):
                 arr = np.matmul(self.value, other[np.newaxis,...])
         return ArrayList(arr, names=self._name_tuple())
 
+    def conj(self):
+        """
+        Takes the complex conjugate of this array list.
+
+        :returns: A new array list.
+        :rtype: :py:class:`ArrayList`
+        """
+        return self._duplicate(arrays=self._array.conj())
+
+    def transpose(self, axes=None):
+        """
+        Transposes each of the arrays in this list.
+
+        :param axes: The order to permute the axes in, an iterable with the
+        same length as :py:attr:`.ndim`. If ``None`` (default) reverses the
+        order of the axes of each array, but keeps the order of the arrays
+        the same.
+
+        :returns: A new array list.
+        :rtype: :py:class:`ArrayList`
+        """
+        axes = [0] + list(range(self.ndim, 0, -1)) if axes is None else [0] + list(axes)
+        return self._duplicate(arrays=self._array.transpose(axes))
+
+    def dagger(self):
+        """
+        Takes the conjugate transpose of each array in this array list.
+        If this is an array list of vectors (``ndim==1``), then each vector
+        is made into a row vector of shape ``(1,size)``. If ``ndim>1``, then
+        the order of the indices is reversed.
+
+        :returns: A new array list.
+        :rtype: :py:class:`ArrayList`
+        """
+        if self._np == '|' and self._ns[:7] == r'\rangle':
+            pre, suf = r'\langle ', '|'
+        else:
+            pre, suf = self._np, self._ns
+        names = (pre, suf, self._nj, self._names)
+        if self.ndim == 1:
+            arr = self.value.conj()[:,np.newaxis,:]
+        else:
+            axes = [0] + list(range(self.ndim, 0, -1))
+            arr = self.value.conj().transpose(axes)
+        return self._duplicate(arrays=arr, names=names)
+
+    def trace(self):
+        """
+        Returns the trace of each array in this array list.
+
+        :returns: A list of trace values of length :py:attr:`n_arrays`.
+        :rtype: ``np.ndarray``
+        """
+        if self.ndim < 2:
+            raise ValueError('1D array lists cannot have their trace taken.')
+        if not all([sh == self.shape[0] for sh in self.shape]):
+            raise ValueError('Arrays must have all dimensions equal.')
+        idxs = np.diag_indices(self.shape[0], self.ndim)
+        return np.sum(self.value[(np.s_[:],) + idxs], axis=-1)
+
     @property
     def n_arrays(self):
         """
@@ -309,6 +378,16 @@ class ArrayList(object):
         :type: ``tuple``
         """
         return self.value.shape[1:]
+
+    @property
+    def size(self):
+        """
+        The number of elements in each array of this array list; the product
+        of :py:attr:`.shape`
+
+        :type: ``int``
+        """
+        return int(np.prod(self.shape))
 
     @property
     def dtype(self):
@@ -388,10 +467,10 @@ class ArrayList(object):
 
         arr = self.value.conj()[:,np.newaxis,:,np.newaxis] * other.value[np.newaxis,:,np.newaxis,:]
         arr = arr.reshape(-1, *arr.shape[-2:])
-        pre, suf = r'\langle ', '|' if self._np == '|' and self._ns == r'\rangle' \
+        pre, suf = r'\langle ', '|' if self._np == '|' and self._ns[:7] == r'\rangle' \
             else (self._np, self._ns)
         names = [on + pre + tn + suf for on, tn in product(other.names, self._names)]
-        return ArrayList(arr, names=names)
+        return self._duplicate(arrays=arr, names=names)
 
     @property
     def _class_name_(self):
@@ -470,6 +549,16 @@ class Basis(ArrayList):
 
         self._normalized = np.allclose(self._sq_norms, 1)
 
+    def _duplicate(self, arrays=None, names=None, orthogonal=None, normalize=False):
+        """
+        Returns a new :py:class:`ArrayList` instance, with the same properties
+        as this one, unless otherwise specified by the parameters given.
+        """
+        arr = self.value if arrays is None else arrays
+        names = self._name_tuple() if names is None else names
+        orthogonal = self.orthogonal if orthogonal is None else orthogonal
+        return Basis(arr, names=names, orthogonal=orthogonal, normalize=normalize)
+
     @property
     def orthogonal(self):
         """
@@ -487,20 +576,6 @@ class Basis(ArrayList):
         :type: ``bool``
         """
         return self._normalized
-
-    def __getitem__(self, key):
-        arr = self.value[key]
-        try:
-            names = self.names[key]
-        except TypeError:
-            names = [self.names[idx] for idx in key]
-        return Basis(
-                arr, names=self._name_tuple(names), orthogonal=self.orthogonal
-            )
-
-    def outer_product(self, other=None):
-        al = super(Basis, self).outer_product(other)
-        return Basis(al.value, names=al.names, orthogonal=self.orthogonal)
 
     @property
     def _class_name_(self):
