@@ -207,6 +207,15 @@ class ArrayList(object):
         return [self._np + name + self._ns for name in self._names]
 
     @property
+    def tex_names(self):
+        """
+        This array list's :py:attr:`.names` wrapped in dollar signs.
+
+        :type: ``list``
+        """
+        return ['$' + name + '$' for name in self.names]
+
+    @property
     def value(self):
         """
         All arrays in this list, as a single ``np.ndarray``, where the first
