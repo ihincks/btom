@@ -36,6 +36,14 @@ class TomographyData(object):
             'D': self.dim
         }
 
+    @classmethod
+    def simulate(cls):
+        """
+        Returns a new :py:classq:`TomographyData` instance with simulated data.
+        """
+        raise NotImplemented(('This particular data structure does not have '
+                'a simulation function implemented.'))
+
 class StateTomographyData(TomographyData):
     """
     A base class for objects that store data from quantum state tomography
@@ -71,6 +79,37 @@ class StateTomographyData(TomographyData):
             })
         return sd
 
+    @classmethod
+    def _measurement_results(cls, true_state, meas_ops):
+        """
+        Returns the measurement value of the given measurement operators under
+        the provided true state.
+
+        :param true_state: The true state of the sytem.
+        :param btom.ArrayList meas_ops: A list of measurement operators.
+
+        :returns: A 1D array of size ``meas_ops.n_arrays``.
+        :rtype: ``np.ndarray``
+        """
+        return meas_ops.dagger().dot(true_state).trace()
+
+
+    @classmethod
+    def simulate(cls, true_state, meas_ops):
+        """
+        Returns a new :py:classq:`StateTomographyData` instance with simulated
+        data.
+
+        :param true_state: The true state of the sytem, used to simulate
+            data with. Can be a any array or :py:class:`qutip.Qobj`.
+        :param btom.ArrayList meas_ops: A list of measurement operators.
+
+        :returns: A new data set.
+        :rtype: :py:class:StateTomographyData`
+        """
+        raise NotImplementedError(('This particular data structure does not '
+                'have a simulation function implemented.'))
+
 
 class BinomialTomographyData(StateTomographyData):
     def __init__(self, meas_ops, n_shots, results):
@@ -102,6 +141,40 @@ class BinomialTomographyData(StateTomographyData):
         sd['n'] = self.n_shots
         sd['k'] = self.results
         return sd
+
+    @classmethod
+    def simulate(cls, true_state, meas_ops, n_shots):
+        """
+        Returns a new :py:classq:`BinomialTomographyData` instance with
+        simulated data.
+
+        :param true_state: The true state of the sytem, used to simulate
+            data with. Can be a any array or :py:class:`qutip.Qobj`.
+        :param btom.ArrayList meas_ops: A list of measurement operators.
+        :param n_meas: An integer specifying the number of shots to measure
+             each operator for, or, a list of integers, one for each
+             measurement operator, specifying how many times to measure each.
+
+        :returns: A new data set.
+        :rtype: :py:class:BinomialTomographyData`
+        """
+        probs = StateTomographyData._measurement_results(true_state, meas_ops)
+        if not np.allclose(np.imag(probs), 0):
+            raise ValueError(('Some probabilities imaginary; check that'
+                'your measurements and state are positive semi-definite and '
+                'less than the identity'))
+        probs = np.real(probs)
+        if np.sum(np.logical_or(probs < 0, probs > 1)) > 0:
+            raise ValueError(('Some probabilities were not in [0,1]; check that'
+                'your measurements and state are positive semi-definite and '
+                'less than the identity'))
+        try:
+            results = np.random.binomial(n_shots, probs)
+        except ValueError as e:
+            if 'shape mismatch' in e:
+                raise ValueError(('n_shots inconsistent with the number of '
+                    'measurement operators'))
+        return BinomialTomographyData(meas_ops, n_shots, results)
 
 class PoissonTomographyData(StateTomographyData):
     pass
