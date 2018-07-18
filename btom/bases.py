@@ -324,9 +324,9 @@ class ArrayList(object):
         Transposes each of the arrays in this list.
 
         :param axes: The order to permute the axes in, an iterable with the
-        same length as :py:attr:`.ndim`. If ``None`` (default) reverses the
-        order of the axes of each array, but keeps the order of the arrays
-        the same.
+            same length as :py:attr:`ndim`. If ``None`` (default) reverses the
+            order of the axes of each array, but keeps the order of the arrays
+            the same.
 
         :returns: A new array list.
         :rtype: :py:class:`ArrayList`

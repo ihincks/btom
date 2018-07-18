@@ -39,7 +39,7 @@ class TomographyData(object):
     @classmethod
     def simulate(cls):
         """
-        Returns a new :py:classq:`TomographyData` instance with simulated data.
+        Returns a new :py:class:`TomographyData` instance with simulated data.
         """
         raise NotImplemented(('This particular data structure does not have '
                 'a simulation function implemented.'))
@@ -97,7 +97,7 @@ class StateTomographyData(TomographyData):
     @classmethod
     def simulate(cls, true_state, meas_ops):
         """
-        Returns a new :py:classq:`StateTomographyData` instance with simulated
+        Returns a new :py:class:`StateTomographyData` instance with simulated
         data.
 
         :param true_state: The true state of the sytem, used to simulate
@@ -145,7 +145,7 @@ class BinomialTomographyData(StateTomographyData):
     @classmethod
     def simulate(cls, true_state, meas_ops, n_shots):
         """
-        Returns a new :py:classq:`BinomialTomographyData` instance with
+        Returns a new :py:class:`BinomialTomographyData` instance with
         simulated data.
 
         :param true_state: The true state of the sytem, used to simulate
