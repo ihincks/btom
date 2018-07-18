@@ -4,7 +4,6 @@ import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 import qutip as qt
 import seaborn as sns
-from scipy.linalg import sqrtm
 
 import btom.bases as btb
 import btom.utils as btu
@@ -109,7 +108,7 @@ class StatePosterior(TomographyPosterior):
         """
         if isinstance(fiducial_state, qt.Qobj):
             fiducial_state = fiducial_state.full()
-        sq_fs = sqrtm(fiducial_state)[np.newaxis,...]
+        sq_fs = btu.sqrtm_pos(fiducial_state)[np.newaxis,...]
         tmp = np.matmul(sq_fs, np.matmul(self.states, sq_fs))
 
         # next we want the trace of the square root of tmp, all squared
@@ -141,7 +140,7 @@ class StatePosterior(TomographyPosterior):
         plt.xlabel(r'Fidelity $($Tr$\sqrt{\sqrt{\rho}\sigma\sqrt{\rho}})^2$')
         plt.ylabel('Posterior density')
 
-    def plot_bloch(self, fiducial_state=None, fig=None, axes=None,
+    def plot_bloch(self, fiducial_state=None, axes=None,
             dist_kwargs=None, est_kwargs=None, fiducial_state_kwargs=None
         ):
         """
@@ -150,9 +149,8 @@ class StatePosterior(TomographyPosterior):
 
         :param fiducial_state: An extra state to plot on the Bloch sphere,
             separate from the bayes estimate and the posterior.
-        :param matplotlib.pyplot.Figure fig: The matplotlib figure to use. A new
-            one is created if none is given.
-        :param mpl_toolkits.Axes3D axes: The 3D axes to plot on.
+        :param mpl_toolkits.Axes3D axes: The 3D axes to plot on. If ``None``,
+            a new 3d axis is created.
         :param dict dist_kwargs: Arguments to be passed to ``axes.scatter()``
             when plotting the distribution of states.
         :param dict est_kwargs: Arguments to be passed to ``axes.plot()`` when
@@ -176,8 +174,7 @@ class StatePosterior(TomographyPosterior):
         # We have to do some manual jiggering because qutip.Bloch has some
         # limitations in terms of formatting
 
-        if fig is None:
-            fig = plt.figure(figsize=(4,4))
+        fig = plt.gcf()
         if axes is None:
             axes = Axes3D(fig)
         b = qt.Bloch(fig=fig, axes=axes)
@@ -273,7 +270,7 @@ class StatePosterior(TomographyPosterior):
         labels.append('Marginal posterior')
         plt.legend(handles, labels)
 
-    def plot_matrix(self, fiducial_state=None, vector_basis=None, fiducial_state_label='Fiducial state'):
+    def plot_matrix(self, fiducial_state=None, vector_basis=None, fiducial_state_label='Fiducial state', axes=None):
         r"""
         Plots the posterior as a 3D bar plot in the given basis---if none is
         given, the canonical basis is used. Absolute values of matrix elements
@@ -289,8 +286,10 @@ class StatePosterior(TomographyPosterior):
             a :py:class:`qutip.Qobj`.
         :param str fiducial_state_label: The label for the ``fiducial_state``
             to use in the plot legend.
+        :param mpl_toolkits.Axes3D axes: The 3D axes to plot on. If ``None``,
+            a new 3d axis is created.
         """
-        ax = plt.gcf().add_subplot(111, projection='3d')
+        ax = plt.gcf().add_subplot(111, projection='3d') if axes is None else axes
 
         # bases
         b = btb.canonical_basis(self.dim) if vector_basis is None else vector_basis
@@ -312,10 +311,14 @@ class StatePosterior(TomographyPosterior):
         # draw lower bars with low opacity
         colors[:,3] = 0.3
         w = 0.5
-        ax.bar3d(x, y, np.zeros_like(bottom), w, w, bottom, color=colors, shade=True)
-        # draw 90% credible regiion with full opacity
-        colors[:,3] = 1
-        ax.bar3d(x, y, bottom, w, w, top, color=colors, shade=True)
+        idx = 0
+        # draw each bar one at a time to force the zorder to be sane...sigh
+        for xval, yval, bval, tval in zip(x, y, bottom, top):
+            c = colors[idx,:]
+            ax.bar3d([xval], [yval], [0], w, w, [bval], color=c, shade=True)
+            c[3] = 1
+            ax.bar3d([xval], [yval], [bval], w, w, [tval], color=c, shade=True)
+            idx += 1
 
         # fiducial state
         if fiducial_state is not None:
@@ -347,8 +350,7 @@ class StatePosterior(TomographyPosterior):
         cax, kw = mpl.colorbar.make_axes(ax, shrink=.75, pad=.0)
         cb = mpl.colorbar.ColorbarBase(
                 cax, cmap=btu.complex_cmap,
-                norm=mpl.colors.Normalize(-np.pi, np.pi),
-                label='Complex argument'
+                norm=mpl.colors.Normalize(-np.pi, np.pi)
             )
         cb.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
         cb.set_ticklabels((r'$-\pi$', r'$-\pi/2$', r'$0$', r'$\pi/2$', r'$\pi$'))
