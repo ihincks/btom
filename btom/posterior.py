@@ -3,8 +3,11 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 import qutip as qt
+import seaborn as sns
+from scipy.linalg import sqrtm
 
 import btom.bases as btb
+import btom.utils as btu
 
 __all__ = ['TomographyPosterior', 'StatePosterior']
 
@@ -86,7 +89,59 @@ class StatePosterior(TomographyPosterior):
         """
         return np.mean(self.states, axis=0)
 
-    def bloch_plot(self, fiducial_state=None, fig=None, axes=None,
+    @property
+    def purity(self):
+        r"""
+        The posterior distribution of purity, :math:`\operatorname{Tr}(\rho^2)`.
+
+        :type: ``np.ndarray``
+        """
+        idxs = (np.s_[:],) + np.diag_indices(self.dim)
+        return np.real(np.sum(np.matmul(self.states, self.states)[idxs], axis=-1))
+
+    def fidelity(self, fiducial_state):
+        r"""
+        The posterior distribution of fidelity,
+        :math:`(\operatorname{Tr}\sqrt{\sqrt{\rho}\sigma\sqrt{\rho}})^2`,
+        against the given fiducial state.
+
+        :type: ``np.ndarray``
+        """
+        if isinstance(fiducial_state, qt.Qobj):
+            fiducial_state = fiducial_state.full()
+        sq_fs = sqrtm(fiducial_state)[np.newaxis,...]
+        tmp = np.matmul(sq_fs, np.matmul(self.states, sq_fs))
+
+        # next we want the trace of the square root of tmp, all squared
+        # we sum the square roots of the singular values to acheive this
+        return np.sum(np.sqrt(np.linalg.svd(tmp, compute_uv=False)), axis=-1) ** 2
+
+    def plot_purity(self, **kwargs):
+        """
+        Plots the posterior distribution of the :py:attr:`.purity`.
+
+        :param kwargs: Arguments to pass to :py:meth:`seaborn.kdeplot`.
+        """
+        kw = {'shade':True, 'kernel':'tri'}
+        kw.update(kwargs)
+        sns.kdeplot(self.purity, **kw)
+        plt.xlabel(r'Purity Tr$(\rho^2)$')
+        plt.ylabel('Posterior density')
+
+    def plot_fidelity(self, fiducial_state, **kwargs):
+        """
+        Plots the posterior distribution of the :py:attr:`.fidelity` against
+        the given fiducial state.
+
+        :param kwargs: Arguments to pass to :py:meth:`seaborn.kdeplot`.
+        """
+        kw = {'shade':True, 'kernel':'tri'}
+        kw.update(kwargs)
+        sns.kdeplot(self.fidelity(fiducial_state), **kw)
+        plt.xlabel(r'Fidelity $($Tr$\sqrt{\sqrt{\rho}\sigma\sqrt{\rho}})^2$')
+        plt.ylabel('Posterior density')
+
+    def plot_bloch(self, fiducial_state=None, fig=None, axes=None,
             dist_kwargs=None, est_kwargs=None, fiducial_state_kwargs=None
         ):
         """
@@ -167,7 +222,7 @@ class StatePosterior(TomographyPosterior):
 
         return b.axes
 
-    def basis_expansion_plot(self, basis, fiducial_state=None, fiducial_state_label='Fiducial state'):
+    def plot_basis_expansion(self, basis, fiducial_state=None, fiducial_state_label='Fiducial state'):
         r"""
         Expands each state in this posterior distribution in terms of the
         given basis, and plots marginal posterior distributions of the
@@ -180,8 +235,8 @@ class StatePosterior(TomographyPosterior):
             Coefficients are cast to real numbers. Bases do not need to be
             complete.
 
-        :param btom.Basis: A basis object to calculate expansion coefficients
-            with respect to.
+        :param btom.Basis basis: A basis object to calculate expansion
+            coefficients with respect to.
         :param fiducial_state: A single fixed state to be plotted along with
             the posterior. Should be an array the same size as the state, or
             a :py:class:`qutip.Qobj`.
@@ -217,3 +272,89 @@ class StatePosterior(TomographyPosterior):
         handles.append(vp)
         labels.append('Marginal posterior')
         plt.legend(handles, labels)
+
+    def plot_matrix(self, fiducial_state=None, vector_basis=None, fiducial_state_label='Fiducial state'):
+        r"""
+        Plots the posterior as a 3D bar plot in the given basis---if none is
+        given, the canonical basis is used. Absolute values of matrix elements
+        are shown as bar height, and complex phases are shown as colour.
+        The 95% symmetric region of each absolute value is shown by the
+        part of the bar with full opacity. If a fiducial state is given,
+        is is shown as a dashed line wrapping the bars.
+
+        :param btom.Basis vector_basis: A vector basis to calculate matrix
+            components with respect to.
+        :param fiducial_state: A single fixed state to be plotted along with
+            the posterior. Should be an array the same size as the state, or
+            a :py:class:`qutip.Qobj`.
+        :param str fiducial_state_label: The label for the ``fiducial_state``
+            to use in the plot legend.
+        """
+        ax = plt.gcf().add_subplot(111, projection='3d')
+
+        # bases
+        b = btb.canonical_basis(self.dim) if vector_basis is None else vector_basis
+        bm = b.outer_product()
+
+        # compute bar heights and colors
+        if b.ndim > 1 or b.size != self.dim:
+            raise ValueError('A 1D vector basis with the same dimension as this posterior\'s states is required.')
+        coeffs = bm.expansion(self.states)
+        bottom = np.percentile(np.abs(coeffs), 5, axis=1)
+        top = np.percentile(np.abs(coeffs), 95, axis=1) - bottom
+        arg = np.mean(np.angle(coeffs), axis=1)
+        colors = btu.complex_cmap(0.5 * (arg + np.pi) / np.pi)
+
+        # bar locations
+        x = np.tile(np.arange(b.n_arrays),b.n_arrays) + 0.75
+        y = (np.arange(b.n_arrays)).repeat(b.n_arrays) + 0.75
+
+        # draw lower bars with low opacity
+        colors[:,3] = 0.3
+        w = 0.5
+        ax.bar3d(x, y, np.zeros_like(bottom), w, w, bottom, color=colors, shade=True)
+        # draw 90% credible regiion with full opacity
+        colors[:,3] = 1
+        ax.bar3d(x, y, bottom, w, w, top, color=colors, shade=True)
+
+        # fiducial state
+        if fiducial_state is not None:
+            idx = 0
+            for xval, yval, zval in zip(x+0.25, y+0.25, np.abs(bm.expansion(fiducial_state))):
+                lab = fiducial_state_label if idx == 0 else None
+                plt.plot(
+                        [xval+w/2, xval+w/2, xval-w/2],
+                        [yval-w/2, yval+w/2, yval+w/2],
+                        [zval]*3,
+                        '--', c='k', label=lab
+                    )
+                idx += 1
+
+            plt.legend()
+
+        # this nonsense simply moves the z axis to the left; get rid of it
+        # if it ever breaks matplotlib (https://stackoverflow.com/a/25083379)
+        zaxis = ax.zaxis
+        draw_grid_old = zaxis.axes._draw_grid
+        zaxis.axes._draw_grid = False
+        tmp_planes = zaxis._PLANES
+        zaxis._PLANES = (tmp_planes[2], tmp_planes[3],
+                         tmp_planes[0], tmp_planes[1],
+                         tmp_planes[4], tmp_planes[5])
+        zaxis.axes._draw_grid = draw_grid_old
+
+        # draw the colorbar
+        cax, kw = mpl.colorbar.make_axes(ax, shrink=.75, pad=.0)
+        cb = mpl.colorbar.ColorbarBase(
+                cax, cmap=btu.complex_cmap,
+                norm=mpl.colors.Normalize(-np.pi, np.pi),
+                label='Complex argument'
+            )
+        cb.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+        cb.set_ticklabels((r'$-\pi$', r'$-\pi/2$', r'$0$', r'$\pi/2$', r'$\pi$'))
+
+        # set the labels
+        _set_labels(ax, ['$' + name + '$' for name in b.names], 'x')
+        _set_labels(ax, ['$' + name + '$' for name in b.names], 'y')
+
+        ax.view_init(40, 20)
