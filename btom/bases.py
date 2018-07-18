@@ -196,6 +196,7 @@ class ArrayList(object):
                     'The number of names ({}) must match the number of '
                     'arrays ({})').format(len(self._names), self.n_arrays)
                 )
+        self._names = list(self._names)
 
     @property
     def names(self):
@@ -250,12 +251,19 @@ class ArrayList(object):
         return (self._np, self._ns, self._nj, names)
 
     def __getitem__(self, key):
-        arr = self.value[key]
+        arr = self.value[key, ...]
+        if arr.ndim != self.ndim + 1:
+            arr = arr[np.newaxis, ...]
         try:
-            names = self.names[key]
+            names = self._names[key]
         except TypeError:
-            names = [self.names[idx] for idx in key]
-        return self._duplicate(arrays=arr, names=names)
+            try:
+                names = [self._names[idx] for idx in key]
+            except:
+                names = [self._names[idx]]
+        if not isinstance(names, list):
+            names = [names]
+        return self._duplicate(arrays=arr, names=self._name_tuple(names))
 
 
     def __add__(self, other):
@@ -301,7 +309,7 @@ class ArrayList(object):
     def dot(self, other):
         if isinstance(other, ArrayList):
             arr = np.matmul(self.value, other.value)
-        if isinstance(other, Qobj):
+        elif isinstance(other, Qobj):
             arr = np.dot(self.value, other.full())
         else:
             try:
@@ -324,9 +332,9 @@ class ArrayList(object):
         Transposes each of the arrays in this list.
 
         :param axes: The order to permute the axes in, an iterable with the
-            same length as :py:attr:`ndim`. If ``None`` (default) reverses the
-            order of the axes of each array, but keeps the order of the arrays
-            the same.
+        same length as :py:attr:`.ndim`. If ``None`` (default) reverses the
+        order of the axes of each array, but keeps the order of the arrays
+        the same.
 
         :returns: A new array list.
         :rtype: :py:class:`ArrayList`
