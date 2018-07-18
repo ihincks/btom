@@ -1,11 +1,36 @@
 import os
+import matplotlib.pyplot as plt
 import pystan as ps
 import numpy as np
 import dill
 import matplotlib.colors as col
+import statsmodels.api as sm
 
 PACKAGE_DIR = os.path.abspath(os.path.dirname(__file__))
 BUILTIN_MODEL_DIR = os.path.join(PACKAGE_DIR, "stan")
+
+def plot_kde(samples, draw_mean=True, **kwargs):
+    """
+    Draws a kernel density plot of the given univariate samples.
+
+    :param samples: A list of real samples.
+    :param bool draw_mean: Whether to draw the mean of the samples as a vectical
+        line.
+    :param kwargs: Arguments to pass to ``matplotlib.plot`` when plotting
+         the distribution.
+    """
+    samples = np.array(samples)
+    mu = samples.mean()
+    kde = sm.nonparametric.KDEUnivariate(samples)
+    kde.fit(kernel='tri',fft=False)
+
+    a = plt.plot(kde.support, kde.density, **kwargs)
+    plt.fill_between(kde.support, 0, kde.density, alpha=0.2, facecolor=a[0].get_color())
+
+    if draw_mean:
+        plt.plot([mu, mu], [0, kde.evaluate(mu)], c=a[0].get_color(), ls='--')
+
+    plt.ylim(np.clip(plt.gca().get_ylim(),0,np.inf))
 
 def sqrtm_pos(mat):
     """

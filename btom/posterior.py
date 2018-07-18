@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from mpl_toolkits.mplot3d import Axes3D
 import qutip as qt
-import seaborn as sns
 
 import btom.bases as btb
 import btom.utils as btu
@@ -119,11 +118,11 @@ class StatePosterior(TomographyPosterior):
         """
         Plots the posterior distribution of the :py:attr:`.purity`.
 
-        :param kwargs: Arguments to pass to :py:meth:`seaborn.kdeplot`.
+        :param kwargs: Arguments to pass to :py:func:`btom.utils.kde_plot`.
         """
-        kw = {'shade':True, 'kernel':'tri'}
-        kw.update(kwargs)
-        sns.kdeplot(self.purity, **kw)
+        btu.plot_kde(self.purity, **kwargs)
+        plt.xlim(np.clip(plt.gca().get_xlim(),0,1.01))
+        plt.yticks([])
         plt.xlabel(r'Purity Tr$(\rho^2)$')
         plt.ylabel('Posterior density')
 
@@ -132,11 +131,11 @@ class StatePosterior(TomographyPosterior):
         Plots the posterior distribution of the :py:attr:`.fidelity` against
         the given fiducial state.
 
-        :param kwargs: Arguments to pass to :py:meth:`seaborn.kdeplot`.
+        :param kwargs: Arguments to pass to :py:func:`btom.utils.kde_plot`.
         """
-        kw = {'shade':True, 'kernel':'tri'}
-        kw.update(kwargs)
-        sns.kdeplot(self.fidelity(fiducial_state), **kw)
+        btu.plot_kde(self.fidelity(fiducial_state), **kwargs)
+        plt.xlim(np.clip(plt.gca().get_xlim(),0,1.01))
+        plt.yticks([])
         plt.xlabel(r'Fidelity $($Tr$\sqrt{\sqrt{\rho}\sigma\sqrt{\rho}})^2$')
         plt.ylabel('Posterior density')
 
@@ -312,27 +311,24 @@ class StatePosterior(TomographyPosterior):
         colors[:,3] = 0.3
         w = 0.5
         idx = 0
+        fs = np.abs(bm.expansion(fiducial_state)) if fiducial_state is not None else x
         # draw each bar one at a time to force the zorder to be sane...sigh
-        for xval, yval, bval, tval in zip(x, y, bottom, top):
+        for xval, yval, bval, tval, fval in zip(x, y, bottom, top, fs):
             c = colors[idx,:]
             ax.bar3d([xval], [yval], [0], w, w, [bval], color=c, shade=True)
             c[3] = 1
             ax.bar3d([xval], [yval], [bval], w, w, [tval], color=c, shade=True)
-            idx += 1
-
-        # fiducial state
-        if fiducial_state is not None:
-            idx = 0
-            for xval, yval, zval in zip(x+0.25, y+0.25, np.abs(bm.expansion(fiducial_state))):
+            if fiducial_state is not None:
                 lab = fiducial_state_label if idx == 0 else None
                 plt.plot(
-                        [xval+w/2, xval+w/2, xval-w/2],
-                        [yval-w/2, yval+w/2, yval+w/2],
-                        [zval]*3,
-                        '--', c='k', label=lab
+                        [xval+0.24+w/2, xval+0.24+w/2, xval+0.26-w/2],
+                        [yval+0.24-w/2, yval+0.26+w/2, yval+0.26+w/2],
+                        [fval]*3,
+                        '--', c='k', label=lab, zorder=1e8
                     )
-                idx += 1
+            idx += 1
 
+        if fiducial_state is not None:
             plt.legend()
 
         # this nonsense simply moves the z axis to the left; get rid of it
