@@ -7,6 +7,21 @@ import matplotlib.colors as col
 PACKAGE_DIR = os.path.abspath(os.path.dirname(__file__))
 BUILTIN_MODEL_DIR = os.path.join(PACKAGE_DIR, "stan")
 
+def sqrtm_pos(mat):
+    """
+    Returns the matrix square root of a positive semi-definite operator. This
+    function does not check if the inuit is positive semi-definite.
+
+    :param np.ndarray mat: The matrix to take the square root of.
+    :returns: A new positive matrix of the same shape whose square is ``mat``.
+    :rtype: ``np.ndarray``
+    """
+    # scipy's sqrtm can't deal with singular matrices.
+    # this could easily be generalized to take the square root along the
+    # last 2 dimensions, since svd has that ability
+    u, d, v = np.linalg.svd(mat)
+    return np.matmul(u, np.matmul(np.diag(np.sqrt(d)), v))
+
 class StanModelFactory(object):
     """
     Class to construct instances of :py:class:`pystan.StanModel`, which first
