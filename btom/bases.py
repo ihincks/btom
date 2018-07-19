@@ -562,7 +562,7 @@ class Basis(ArrayList):
             raise NotImplementedError('Non-orthogonal bases are not possible at the moment.')
         if normalize:
             self._array = self._array / np.sqrt(self._sq_norms[(np.s_[:],) + (None,) * self.ndim])
-            self.norms = np.ones(self.n_arrays)
+            self._sq_norms = np.ones(self.n_arrays)
 
         self._normalized = np.allclose(self._sq_norms, 1)
 
