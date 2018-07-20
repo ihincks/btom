@@ -1,4 +1,5 @@
 import numpy as np
+import btom.bases as btb
 
 __all__ = [
     'TomographyData', 'StateTomographyData',
@@ -23,8 +24,7 @@ class TomographyData(object):
         """
         return self._dim
 
-    @property
-    def stan_data(self):
+    def stan_data(self, include_est=False):
         """
         A dictionary object summarizing this dataset which can be used as
         input to a relevant stan sampler; see
@@ -69,14 +69,40 @@ class StateTomographyData(TomographyData):
     def n_meas_ops(self):
         return self.meas_ops.n_arrays
 
-    @property
-    def stan_data(self):
-        sd= super(StateTomographyData, self).stan_data
-        sd.update({
-                'm': self.n_meas_ops,
-                'M_real': np.real(self.meas_ops.value),
-                'M_imag': np.imag(self.meas_ops.value)
-            })
+    def ls_estimate(self):
+        """
+        Returns the least-squares estimate of the density matrix, working in
+        the gell-mann basis and assiming a trace-1 state.
+
+        :returns: Array of shape ``(dim, dim)``.
+        :rtype: ``np.ndarray``
+        """
+        return self.ls_bs_estimates(n_bs=0)[0]
+
+    def ls_bs_estimates(self, n_bs=500):
+        """
+        Returns the least-squares estimate of the density matrix (see
+        :py:meth:`.ls_estimate`), along with a bunch of similar estimates
+        obtained using the same estimator for bootstrapped data sets.
+
+        :param int n_bs: The number of bootstrap samples.
+        :returns: Tuple ``(est, bs_ests)`` where ``est`` is as in
+            :py:meth:`.ls_estimate`, and ``bs_ests`` has shape
+            ``(n_bs,dim,dim)`` where the first index is over bootstrap samples.
+        """
+        raise NotImplementedError('This data type has not '
+            'implemented a least-squares fitter.')
+
+    def stan_data(self, include_est=False):
+        sd= super(StateTomographyData, self).stan_data(include_est=include_est)
+        sd['m'] = self.n_meas_ops
+        sd['M_real'] = np.real(self.meas_ops.value)
+        sd['M_imag'] = np.imag(self.meas_ops.value)
+        if include_est:
+            try:
+                sd['rho_est'], sd['rho_bs'] = self.ls_bs_estimates()
+            except NotImplementedError:
+                pass
         return sd
 
     @classmethod
@@ -135,9 +161,37 @@ class BinomialTomographyData(StateTomographyData):
     def results(self):
         return self._results
 
-    @property
-    def stan_data(self):
-        sd = super(BinomialTomographyData, self).stan_data
+    def ls_bs_estimates(self, n_bs=500):
+        # expand each measurement op in terms of orthonormal hermitian basis
+        basis = btb.gell_mann_basis(self.dim, normalize=True)
+        X = np.real(basis.expand(self.meas_ops).T)
+
+        # estimate of each measurement's overlap with the state
+        # hedge a bit to avoid 0 variance
+        y = (self.results + 0.5) / (self.n_shots + 1)
+        # draw bootstrap samples
+        results_bs = np.random.binomial(self.n_shots, y, size=(n_bs, self.n_meas_ops))
+        y_bs = (results_bs + 0.5) / (self.n_shots + 1)
+
+        # we assume unit trace density matrices, thus we know coeff on this
+        # basis element is 1/sqrt(d). thus, subtract it off the RHS to
+        # avoid making it a fit parameter.
+        y -= X[:,0] / np.sqrt(self.dim)
+        y_bs -= X[:,0] / np.sqrt(self.dim)
+        X = X[:,1:]
+
+        # for some reason this is faster than np.linalg.pinv for me
+        Xinv = np.dot(np.linalg.inv(np.dot(X.T, X)), X.T)
+
+        # return estimate of state in standard basis
+        mats_bs = basis[1:].construct(np.dot(y_bs, Xinv)) + np.eye(self.dim)/self.dim
+        mat = basis[1:].construct(np.dot(Xinv, y)) + np.eye(self.dim)/self.dim
+
+        return mat, mats_bs
+
+
+    def stan_data(self, include_est=False):
+        sd = super(BinomialTomographyData, self).stan_data(include_est=include_est)
         sd['n'] = self.n_shots
         sd['k'] = self.results
         return sd
