@@ -39,22 +39,17 @@ class StanTomographySampler(TomographySampler):
 
     :param StanModelFactory stan_model_factory: The model factor for the stan
         program.
-    :param bool include_est: Whether to ask the data structure providing stan
-        dictionaries for an estimate of the output state. If provided,
-        this is used in the stan program to help improve efficiency, but does
-        not modify the posterior distribution.
     :param int n_chains: The number of MCMC chains to run when sampling.
     :param int n_iter: The number of iterations per chain. This includes
         burn-in, so only half of this number will be reported per chain.
     :param dict sampling_kwargs: Other named argements to pass to the
         model's sampling method.
     """
-    def __init__(self, stan_model_factory, include_est=True, n_chains=3, n_iter=500, sampling_kwargs=None):
+    def __init__(self, stan_model_factory, n_chains=3, n_iter=500, sampling_kwargs=None):
         self._n_chains = n_chains
         self._n_iter = n_iter
         self._stan_model_factory = stan_model_factory
         self._sampling_kw_args = {} if sampling_kwargs is None else sampling_kwargs
-        self._include_est = True
 
     @property
     def n_chains(self):
@@ -74,15 +69,6 @@ class StanTomographySampler(TomographySampler):
         :rtype: ``int``
         """
         return self._n_iter
-
-    @property
-    def include_est(self):
-        """
-        The number of MCMC chains to run when sampling.
-
-        :rtype: ``int``
-        """
-        return self._include_est
 
     @property
     def stan_model(self):
@@ -165,7 +151,7 @@ class StanStateSampler(StanTomographySampler):
              and the entry at ``[idx,:,:]`` is a density matrix.
         :rtype: ``np.ndarray``
         """
-        fit = self._raw_sample(data.stan_data(self.include_est))
+        fit = self._raw_sample(data.stan_data())
         return fit['rho_real'] + 1j * fit['rho_imag']
 
 class BinomialGinibreStateSampler(StanStateSampler):
@@ -184,11 +170,10 @@ class BinomialGinibreStateSampler(StanStateSampler):
     :param dict sampling_kwargs: Other named argements to pass to the
         model's sampling method.
     """
-    def __init__(self, ginibre_dim=None, include_est=True, n_chains=3, n_iter=500, sampling_kwargs=None):
+    def __init__(self, ginibre_dim=None, n_chains=3, n_iter=500, sampling_kwargs=None):
         super(BinomialGinibreStateSampler, self).__init__(
                 btu.StanModelFactory.load_builtin('binomial-ginibre.stan'),
                 n_chains=n_chains, n_iter=n_iter,
-                include_est=include_est,
                 sampling_kwargs=sampling_kwargs
             )
         self._ginibre_dim = ginibre_dim
@@ -230,23 +215,6 @@ class BinomialGinibreStateSampler(StanStateSampler):
         stan_data = super(BinomialGinibreStateSampler, self).modify_stan_data(stan_data)
         K = stan_data['D'] if self.ginibre_dim is None else self.ginibre_dim
         stan_data['K'] = K
-        if 'rho_est' in stan_data:
-            vals, vecs = np.linalg.eig(stan_data['rho_est'])
-            x = vecs[:,:K] * np.sqrt(np.abs(vals))[np.newaxis,:K]
-            stan_data.pop('rho_est', None)
-        else:
-            x = np.zeros((stan_data['D'], K))
-        stan_data['X_real_est'] = np.real(x)
-        stan_data['X_imag_est'] = np.imag(x)
-        if 'rho_bs' in stan_data:
-            vals, vecs = np.linalg.eig(stan_data['rho_bs'])
-            x = vecs * np.sqrt(np.abs(vals))[:,np.newaxis,:]
-            stan_data['X_real_std'] = np.std(np.real(x), axis=0)
-            stan_data['X_imag_std'] = np.std(np.imag(x), axis=0)
-            stan_data.pop('rho_bs', None)
-        else:
-            stan_data['X_real_std'] = np.ones((stan_data['D'], K))
-            stan_data['X_imag_std'] = np.ones((stan_data['D'], K))
         return stan_data
 
 class PoissonGinibreStateSampler(StanStateSampler):
