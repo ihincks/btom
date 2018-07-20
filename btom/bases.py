@@ -489,6 +489,31 @@ class ArrayList(object):
         names = [on + pre + tn + suf for on, tn in product(other.names, self._names)]
         return self._duplicate(arrays=arr, names=names)
 
+    def construct(self, coeffs):
+        """
+        Constructs an array (or many arrays) by summing the given coefficients
+        against members of this array list. The last dimension of ``coeffs`` are
+        interpretted as expansion coefficients; if the shape of ``coeffs`` is
+        ``(n1,...,nm, self.n_arrays)`` then the output of this function has
+        shape ``(n1,...,nm)+self.shape``.
+
+        If this :py:class:`ArrayList` is a :py:class:`Basis`, then this
+        constitutes the usual notion of expanding in terms of a basis, and
+        this function is inverse to :py:attr:`~btom.Basis.expand`.
+
+        :param np.ndarray coeffs: An array whose last index has size equal to
+            :py:attr:`n_arrays` for this array list.
+        :returns: An array as described above.
+        :rtype: ``np.ndarray``
+        """
+        coeffs = np.array(coeffs)
+        if coeffs.shape[-1] != self.n_arrays:
+            raise ValueError(('Last index of given coefficient list '
+                'is inconsistent with the size of this basis.'))
+        arrays = self.value[(np.newaxis,) * (coeffs.ndim-1) + (np.s_[...],)]
+        coeffs = coeffs[(np.s_[...],) + (np.newaxis,) * self.ndim]
+        return np.sum(arrays * coeffs, axis=-self.ndim-1)
+
     @property
     def _class_name_(self):
         return type(self).__name__
@@ -606,7 +631,7 @@ class Basis(ArrayList):
             cls_name = ''
         return cls_name + ' ' + type(self).__name__
 
-    def expansion(self, array):
+    def expand(self, array):
         """
         Expands the given array (or arrays) in terms of coeffecients with
         respect to this basis.
@@ -639,6 +664,6 @@ class Basis(ArrayList):
                 array = ArrayList(array)
                 if array.shape != self.shape:
                     raise ValueError('Input incompatible with this basis.')
-                return self.expansion(array)
+                return self.expand(array)
         else:
             raise NotImplementedError('Expansions not implemented for non-orthogonal basis yet.')

@@ -183,7 +183,7 @@ class StatePosterior(TomographyPosterior):
         b.plot_back()
 
         paulis = btb.pauli_basis()[1:]
-        dist = 2 * np.real(paulis.expansion(self.states)).T
+        dist = 2 * np.real(paulis.expand(self.states)).T
         kwargs = {'edgecolor': None, 'alpha': 0.3, 'marker':'.', 'label':'Posterior sample'}
         kwargs.update(dist_kwargs)
         axes.scatter(dist[:,1], -dist[:,0], dist[:,2], **kwargs)
@@ -192,13 +192,13 @@ class StatePosterior(TomographyPosterior):
         b.plot_axes_labels()
         b.plot_axes()
 
-        est = 2 * np.real(paulis.expansion(self.state_estimate))
+        est = 2 * np.real(paulis.expand(self.state_estimate))
         kwargs = {'marker':'D', 'color':'k', 'markersize':5, 'label':'Bayes estimate'}
         kwargs.update(est_kwargs)
         axes.plot([est[1]],[ -est[0]], [est[2]], '.', **kwargs)
 
         if fiducial_state is not None:
-            est = 2 * np.real(paulis.expansion(fiducial_state))
+            est = 2 * np.real(paulis.expand(fiducial_state))
             kwargs = {'marker':'*', 'color':'magenta', 'markersize':10, 'label':'Fiducial state'}
             kwargs.update(fs_kwargs)
             axes.plot([est[1]],[ -est[0]], [est[2]], '.', **kwargs)
@@ -239,7 +239,7 @@ class StatePosterior(TomographyPosterior):
         :param str fiducial_state_label: The label for the ``fiducial_state``
             to use in the plot legend.
         """
-        coeffs = np.real(basis.expansion(self.states)).T
+        coeffs = np.real(basis.expand(self.states)).T
         vp = plt.violinplot(coeffs, showextrema=False)
         _set_labels(plt.gca(), basis.tex_names)
         inds = range(1,basis.n_arrays+1)
@@ -251,7 +251,7 @@ class StatePosterior(TomographyPosterior):
         #plt.gca().vlines(, lims[:,0], lims[:,1], color='k', linestyle='-', lw=1)
 
         if fiducial_state is not None:
-            for idx, overlap in enumerate(np.real(basis.expansion(fiducial_state))):
+            for idx, overlap in enumerate(np.real(basis.expand(fiducial_state))):
                 lab = fiducial_state_label if idx == 0 else None
                 if idx == 0:
                     fs = plt.plot([idx+0.6, idx+1.4], [overlap, overlap], '--', label=fiducial_state_label)
@@ -297,7 +297,7 @@ class StatePosterior(TomographyPosterior):
         # compute bar heights and colors
         if b.ndim > 1 or b.size != self.dim:
             raise ValueError('A 1D vector basis with the same dimension as this posterior\'s states is required.')
-        coeffs = bm.expansion(self.states)
+        coeffs = bm.expand(self.states)
         bottom = np.percentile(np.abs(coeffs), 5, axis=1)
         top = np.percentile(np.abs(coeffs), 95, axis=1) - bottom
         arg = np.mean(np.angle(coeffs), axis=1)
@@ -311,7 +311,7 @@ class StatePosterior(TomographyPosterior):
         colors[:,3] = 0.3
         w = 0.5
         idx = 0
-        fs = np.abs(bm.expansion(fiducial_state)) if fiducial_state is not None else x
+        fs = np.abs(bm.expand(fiducial_state)) if fiducial_state is not None else x
         # draw each bar one at a time to force the zorder to be sane...sigh
         for xval, yval, bval, tval, fval in zip(x, y, bottom, top, fs):
             c = colors[idx,:]
