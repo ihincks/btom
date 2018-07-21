@@ -1,14 +1,3 @@
-functions {
-	real tr(matrix X, matrix Y) {
-		real out = 0;
-		for (i in 1:rows(X)) {
-			for (j in 1:cols(X)) {
-				out += X[i,j] * X[i,j] + Y[i,j] * Y[i,j];
-			}
-		}
-		return out;
-	}
-}
 data {
 	int<lower=1> D;											 // Hilbert space dimension
 	int<lower=1> K;                      // Number of Ginibre subsystems
