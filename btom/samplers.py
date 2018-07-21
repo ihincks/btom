@@ -146,13 +146,15 @@ class StanStateSampler(StanTomographySampler):
 
         :param btom.TomographyData data: Tomography data compatible
             with this sampler.
-        :returns: An array of shape ``(n_samples, d, d)`` where ``n_samples``
+        :returns: A tuple ``(states, fit)`` where ``states`` is an
+            array of shape ``(n_samples, d, d)`` where ``n_samples``
              is the number of samples, ``d`` is the Hilbert space dimension,
-             and the entry at ``[idx,:,:]`` is a density matrix.
-        :rtype: ``np.ndarray``
+             and the entry at ``[idx,:,:]`` is a density matrix, and
+             where ``fit`` is a stan fit object.
+        :rtype: (``np.ndarray``, stan fit)
         """
         fit = self._raw_sample(data.stan_data())
-        return fit['rho_real'] + 1j * fit['rho_imag']
+        return fit['rho_real'] + 1j * fit['rho_imag'], fit
 
 class BinomialGinibreStateSampler(StanStateSampler):
     r"""
@@ -218,4 +220,65 @@ class BinomialGinibreStateSampler(StanStateSampler):
         return stan_data
 
 class PoissonGinibreStateSampler(StanStateSampler):
-    pass
+    r"""
+    A :py:class:`StanStateSampler` whose measurements are todo
+
+    :param int ginibre_dim: The maximum rank of density operators with
+        prior support. If ``None``, the dimension of the Hilbert space will
+        be used, so that maximum rank is supported.
+    :param int n_chains: The number of MCMC chains to run when sampling.
+    :param int n_iter: The number of iterations per chain. This includes
+        burn-in, so only half of this number will be reported per chain.
+    :param dict sampling_kwargs: Other named argements to pass to the
+        model's sampling method.
+    """
+    def __init__(self, ginibre_dim=None, dark_flux_est=0, dark_flux_std=0, n_chains=3, n_iter=500, sampling_kwargs=None):
+        super(PoissonGinibreStateSampler, self).__init__(
+                btu.StanModelFactory.load_builtin('poisson-ginibre.stan'),
+                n_chains=n_chains, n_iter=n_iter,
+                sampling_kwargs=sampling_kwargs
+            )
+        self._ginibre_dim = ginibre_dim
+        self._dark_flux_est = dark_flux_est
+        self._dark_flux_std = dark_flux_std
+
+    @property
+    def ginibre_dim(self):
+        """
+        The maximum rank of density operators with prior support.
+
+        :type: ``int``
+        """
+        return self._ginibre_dim
+
+    def check_data(self, stan_data):
+        """
+        Checks goodness given ``stan_data`` dictionary relative to this sampler;
+        this method is run before sampling, and raises errors if it
+        detects problems.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        """
+        for key in ['D', 'K', 'm', 'M_real', 'M_imag', 'counts']:
+            if key not in stan_data:
+                raise ValueError(('This stan data does not contain a '
+                    'necessary entry for {}').format(key))
+
+    def modify_stan_data(self, stan_data):
+        """
+        Modifies the ``stan_data`` dictionary prior to sampling by updating it
+        with :py:attr:`ginibre_dim`.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        :returns: An updated ``stan_data`` dictionary that should be valid
+             to run on this sampler's stan model.
+        :rtype: ``dict``
+        """
+        stan_data = super(PoissonGinibreStateSampler, self).modify_stan_data(stan_data)
+        K = stan_data['D'] if self.ginibre_dim is None else self.ginibre_dim
+        stan_data['K'] = K
+        stan_data['dark_flux_est'] = self._dark_flux_est
+        stan_data['dark_flux_std'] = self._dark_flux_std
+        return stan_data

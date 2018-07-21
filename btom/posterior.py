@@ -36,7 +36,7 @@ class TomographyPosterior(object):
     def __init__(self, sampler, data):
         self._sampler = sampler
         self._data = data
-        self._samples = sampler.sample(data)
+        self._samples, self._fit = sampler.sample(data)
 
     @property
     def data(self):
@@ -55,6 +55,15 @@ class TomographyPosterior(object):
         :type: :py:class:`btom.TomographyPosterior`
         """
         return self._sampler
+
+    @property
+    def fit_object(self):
+        """
+        Any fit object created by the :py:attr:`sampler` when creating this
+        posterior distribution. For stan fits, this will be a stan model fit
+        object.
+        """
+        return self._fit
 
     @property
     def dim(self):

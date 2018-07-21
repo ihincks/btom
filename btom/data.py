@@ -50,8 +50,7 @@ class StateTomographyData(TomographyData):
     experiments. In particular, this base class assumes a list of
     measurement operators each of shape ``(dim,dim)``.
 
-    :param btom.utils.NamedArrayList meas_ops: A list of named measurement
-        operators. These names will be used in visualizations when relevant.
+    :param btom.ArrayList meas_ops: A list of named measurement operators.
     """
     def __init__(self, meas_ops):
         self._meas_ops = meas_ops
@@ -138,15 +137,38 @@ class StateTomographyData(TomographyData):
 
 
 class BinomialTomographyData(StateTomographyData):
+    r"""
+    A :py:class:`StateTomographyData` dataset which resulted from summing the
+    results of binary measurements. Specifically, this dataset assumes a list
+    of :math:`I` two outcome POVMS :math:`\{M_i,\mathbb{I}-M_i\}`, where for
+    each :math:`1\leq i \leq I` we have operator inequalities
+    :math:`0\leq M_i \leq \mathbb{I}`. Typically :math:`\{M_i\}_{i=1}^I`
+    should form a spanning set for density matrices---tensors Pauli matrices
+    (scaled and with a added identities to make them positive) are a popular
+    choice.
+
+    The :math:`i^\text{th}` POVM is measured :math:`n_i` times, resulting
+    in :math:`k_i` results of `1`, which has probability given by
+    :math:`Pr(k_i|n_i,M_i,\rho)={n_i \choose k_i}p_i^{k_i}(1-p_i)^{n_i-k_i}`
+    where :math:`p_i=\operatorname{Tr}(M_i\rho)`.
+
+    :param btom.ArrayList meas_ops: A list of named measurement
+        operators corresponding to :math:`\{M_i\}_{i=1}^I` defined above.
+    :param n_shots: An integer or array-like of length :math:`I` corresponding
+        to the :math:`n_i` defined above. If an integer, it is assumed that
+        all measurement operators are measured the same number of times.
+    :param results: An array-like of length :math:`I` corresponding
+        to the :math:`k_i` defined above.
+    """
     def __init__(self, meas_ops, n_shots, results):
         super(BinomialTomographyData, self).__init__(meas_ops)
         if np.array(n_shots).size == 1:
             self._n_shots = (n_shots * np.ones(self.n_meas_ops)).flatten()
         else:
-            self._n_shots = np.array(n_shots).astype(np.int)
+            self._n_shots = np.array(n_shots)
             if self._n_shots.ndim != 1 or self._n_shots.size != self.n_meas_ops:
                 raise ValueError('n_shots must have the same length as meas_ops')
-        self._results = np.array(results).astype(np.int)
+        self._results = np.array(results)
         if self._results.ndim != 1 or self._results.size != self.n_meas_ops:
             raise ValueError('results must hav ethe same length as meas_ops')
 
@@ -204,7 +226,8 @@ class BinomialTomographyData(StateTomographyData):
 
         :param true_state: The true state of the sytem, used to simulate
             data with. Can be a any array or :py:class:`qutip.Qobj`.
-        :param btom.ArrayList meas_ops: A list of measurement operators.
+        :param btom.ArrayList meas_ops: A list of measurement operators, see
+            :py:class:`BinomialTomographyData` for specification.
         :param n_meas: An integer specifying the number of shots to measure
              each operator for, or, a list of integers, one for each
              measurement operator, specifying how many times to measure each.
@@ -231,4 +254,91 @@ class BinomialTomographyData(StateTomographyData):
         return BinomialTomographyData(meas_ops, n_shots, results)
 
 class PoissonTomographyData(StateTomographyData):
-    pass
+    r"""
+    A :py:class:`StateTomographyData` dataset which resulted from poisson
+    counts, such as in quantum optics measurements.
+    Specifically, this dataset assumes a list
+    of :math:`I` POVMS :math:`\{M_{i,1},\mathbb{I}-M_i\}`, where for
+    each :math:`1\leq i \leq I` we have operator inequalities
+    :math:`0\leq M_i \leq \mathbb{I}`. Typically :math:`\{M_i\}_{i=1}^I`
+    should form a spanning set for density matrices---tensors Pauli matrices
+    (scaled and with a added identities to make them positive) are a popular
+    choice.
+
+    The :math:`i^\text{th}` POVM is measured :math:`n_i` times, resulting
+    in :math:`k_i` results of `1`, which has probability given by
+    :math:`Pr(k_i|n_i,M_i,\rho)={n_i \choose k_i}p_i^{k_i}(1-p_i)^{n_i-k_i}`
+    where :math:`p_i=\operatorname{Tr}(M_i\rho)`.
+
+    :param btom.utils.NamedArrayList meas_ops: A list of named measurement
+        operators corresponding to :math:`\{M_i\}_{i=1}^I` defined above.
+    :param n_shots: An integer or array-like of length :math:`I` corresponding
+        to the :math:`n_i` defined above. If an integer, it is assumed that
+        all measurement operators are measured the same number of times.
+    """
+    def __init__(self, meas_ops, counts, groups=None):
+        super(PoissonTomographyData, self).__init__(meas_ops)
+        self._counts = np.array(counts)
+        if self.counts.ndim != 1 or self.counts.size != self.n_meas_ops:
+            raise ValueError('Counts must have the same length as meas_ops')
+            # put everything in one group
+        self._groups = np.arange(self.n_meas_ops)[np.newaxis,:] if groups is None else np.array(groups)
+
+    @property
+    def counts(self):
+        return self._counts
+
+    @property
+    def groups(self):
+        return self._groups
+
+    @property
+    def n_groups(self):
+        return self.groups.shape[0]
+
+    def ls_bs_estimates(self, n_bs=500):
+        super(PoissonTomographyData, self).ls_bs_estimates()
+
+
+    def stan_data(self, include_est=False):
+        sd = super(PoissonTomographyData, self).stan_data(include_est=include_est)
+        new_order = self.groups.flatten()
+        sd['M_real'] = sd['M_real'][new_order,...]
+        sd['M_imag'] = sd['M_imag'][new_order,...]
+        sd['counts'] = self.counts[new_order]
+        sd['n_groups'] = self.n_groups
+        sd['group_size'] = [group.size for group in self.groups]
+        return sd
+
+    @classmethod
+    def simulate(cls, true_state, meas_ops, rate):
+        """
+        Returns a new :py:class:`PoissonTomographyData` instance with
+        simulated data.
+
+        :param true_state: The true state of the sytem, used to simulate
+            data with. Can be a any array or :py:class:`qutip.Qobj`.
+        :param btom.ArrayList meas_ops: A list of measurement operators.
+        :param float rate: A number greater than zero representing the total
+            flux of counts.
+
+        :returns: A new data set.
+        :rtype: :py:class:PoissonTomographyData`
+        """
+        probs = StateTomographyData._measurement_results(true_state, meas_ops)
+        if not np.allclose(np.imag(probs), 0):
+            raise ValueError(('Some probabilities imaginary; check that'
+                'your measurements and state are positive semi-definite and '
+                'less than the identity'))
+        probs = np.real(probs)
+        if np.sum(np.logical_or(probs < 0, probs > 1)) > 0:
+            raise ValueError(('Some probabilities were not in [0,1]; check that'
+                'your measurements and state are positive semi-definite and '
+                'less than the identity'))
+        try:
+            results = np.random.binomial(n_shots, probs)
+        except ValueError as e:
+            if 'shape mismatch' in e:
+                raise ValueError(('n_shots inconsistent with the number of '
+                    'measurement operators'))
+        return BinomialTomographyData(meas_ops, n_shots, results)
