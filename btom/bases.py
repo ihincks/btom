@@ -1,6 +1,6 @@
 import numpy as np
 from qutip import Qobj
-from itertools import product
+from itertools import product, cycle
 from functools import reduce
 
 
@@ -96,7 +96,7 @@ def pauli_basis(n_qubits=1, normalize=False):
     """
     return gell_mann_basis([2] * n_qubits, normalize=normalize)
 
-def canonical_basis(subsystem_shapes):
+def canonical_basis(subsystem_shapes, names=None):
     """
     Returns the canonical :py:class:`Basis` of the given shape.
 
@@ -122,6 +122,8 @@ def canonical_basis(subsystem_shapes):
         basis, or a list of integers specifying the dimensions of each
         vector subsystem. Integers can be replaced by tuples of integers,
         specifying array shapes, for matrix and higher index bases.
+    :param list names: ``None`` or a list of names to use. The same names
+        are used on each subsystem, and cycled if they run out.
     :returns: A basis with elements of the form ``[0,...,0,1,0,...,0]`` for
         vectors, of form ``[[0,...,0],...,[0,...,0,1,0,...,0],...,[0,...,0]]``
         for matrices, and so on for higher dimensional arrays.
@@ -129,23 +131,28 @@ def canonical_basis(subsystem_shapes):
     """
     ss = subsystem_shapes
     if isinstance(ss, list) and len(ss) > 1:
-        return canonical_basis(ss[0]).kron(canonical_basis(ss[1:]))
+        return canonical_basis(ss[0], names=names).kron(canonical_basis(ss[1:], names=names))
     elif isinstance(ss, list):
-        return canonical_basis(ss[0])
+        return canonical_basis(ss[0], names=names)
 
     if not isinstance(ss, tuple):
         ss = (ss,)
     dim = np.prod(ss)
 
     arr = np.eye(dim).reshape(dim, *ss)
+    if names is not None:
+        cnames = cycle(names)
+        names = ['{}'.format(next(cnames)) for idx in range(dim)]
     if len(ss) == 1:
-        names = ['{:d}'.format(idx) for idx in range(ss[0])]
+        if names is None:
+            names = ['{:d}'.format(idx) for idx in range(ss[0])]
         npre, nsuf = r'|', r'\rangle'
     else:
-        names = [
-                ('E_{{' + '{}'*len(ss) + '}}').format(*idx)
-                for idx in product(*[range(d) for d in ss])
-            ]
+        if names is None:
+            names = [
+                    ('E_{{' + '{}'*len(ss) + '}}').format(*idx)
+                    for idx in product(*[range(d) for d in ss])
+                ]
         npre, nsuf = '', ''
     return Basis(arr, names=(npre, nsuf, '', names))
 
@@ -282,7 +289,7 @@ class ArrayList(object):
     def __mul__(self, other):
         if isinstance(other, ArrayList):
             arr = self.value * other.value
-        if isinstance(other, Qobj):
+        elif isinstance(other, Qobj):
             arr = self.value * other.full()
         else:
             try:
@@ -332,15 +339,27 @@ class ArrayList(object):
         Transposes each of the arrays in this list.
 
         :param axes: The order to permute the axes in, an iterable with the
-        same length as :py:attr:`.ndim`. If ``None`` (default) reverses the
-        order of the axes of each array, but keeps the order of the arrays
-        the same.
+            same length as :py:attr:`.ndim`. If ``None`` (default) reverses the
+            order of the axes of each array, but keeps the order of the arrays
+            the same.
 
         :returns: A new array list.
         :rtype: :py:class:`ArrayList`
         """
         axes = [0] + list(range(self.ndim, 0, -1)) if axes is None else [0] + list(axes)
         return self._duplicate(arrays=self._array.transpose(axes))
+
+    def reshape(self, *shape):
+        """
+        Reshapes each array in this list.
+
+        :param shape: The new shape of each array.
+
+        :returns: A new array list.
+        :rtype: :py:class:`ArrayList`
+        """
+        shape = [self.n_arrays] + list(np.array(shape).flatten())
+        return self._duplicate(arrays=self._array.reshape(shape))
 
     def dagger(self):
         """
@@ -442,6 +461,17 @@ class ArrayList(object):
         names = [tn + self._nj + on for tn in self._names for on in other._names]
         return type(self)(new_arr, names=self._name_tuple(names))
 
+    def kron_power(self, n):
+        """
+        Returns the n-fold kronecker product of this array list with itself
+        by recusively calling :py:meth:`kron`.
+
+        :param int n: The kronecker power.
+        """
+        if n == 1:
+            return self
+        return self.kron(self.kron_power(n-1))
+
     def flatten(self):
         """
         Flattens each array in this list.
@@ -454,6 +484,19 @@ class ArrayList(object):
         self._np = '|'
         self._ns = r'\rangle'
         return self
+
+    def normalize(self):
+        """
+        Returns a new array list where each array has been normalized by the
+        2-norm.
+
+        :return: A new array list.
+        :rtype: :py:class:`ArrayList`
+        """
+        norms = np.sqrt(np.abs(np.sum(self.flat.conj() * self.flat, axis=-1)))
+        norms = norms.reshape([self.n_arrays] + [1] * self.ndim)
+        return self._duplicate(arrays=self.value / norms)
+
 
     def outer_product(self, other=None):
         r"""
@@ -484,7 +527,7 @@ class ArrayList(object):
 
         arr = self.value.conj()[:,np.newaxis,:,np.newaxis] * other.value[np.newaxis,:,np.newaxis,:]
         arr = arr.reshape(-1, *arr.shape[-2:])
-        pre, suf = r'\langle ', '|' if self._np == '|' and self._ns[:7] == r'\rangle' \
+        pre, suf = (r'\langle ', '|') if self._np == '|' and self._ns[:7] == r'\rangle' \
             else (self._np, self._ns)
         names = [on + pre + tn + suf for on, tn in product(other.names, self._names)]
         return self._duplicate(arrays=arr, names=names)
@@ -521,7 +564,7 @@ class ArrayList(object):
     def _repr_html_(self):
         # modified from https://github.com/QInfer/python-qinfer/blob/e90cc57d50f1b48148dbd0c671eff6246dda6c31/src/qinfer/tomography/bases.py
         max_shape_allowed = 6 if self.ndim >= 2 else 10
-        if max(self.shape) < max_shape_allowed and self.ndim <= 2:
+        if max(self.shape) < max_shape_allowed and self.ndim <= 2 and self.n_arrays < 20:
             element_strings = [r"""
                 {label} =
                 \left(\begin{{matrix}}
