@@ -7,7 +7,11 @@ parameters {
 	matrix[D,K] X_real;
 	matrix[D,K] X_imag;
 }
-transformed parameters {
+model {
+	to_vector(X_real) ~ normal(0,1);
+	to_vector(X_imag) ~ normal(0,1);
+}
+generated quantities {
 	matrix[D,D] rho_real;
 	matrix[D,D] rho_imag;
 
@@ -18,12 +22,5 @@ transformed parameters {
 		real t = trace(rho_real);
 		rho_real = rho_real / t;
 		rho_imag = rho_imag / t;
-	}
-}
-model {
-	// Ginibre DxK prior
-	for (idx_row in 1:D) {
-		X_real[idx_row] ~ normal(0,1);
-		X_imag[idx_row] ~ normal(0,1);
 	}
 }

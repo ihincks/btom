@@ -67,11 +67,11 @@ transformed parameters {
 	rho_real = X_real * X_real' + X_imag * X_imag';
 	rho_imag = X_real * X_imag';
 	rho_imag -= rho_imag';
-	{
-		real t = trace(rho_real);
-		rho_real = rho_real / t;
-		rho_imag = rho_imag / t;
-	}
+	// {
+	// 	real t = trace(rho_real);
+	// 	rho_real = rho_real / t;
+	// 	rho_imag = rho_imag / t;
+	// }
 }
 model {
 	// Ginibre DxK prior
@@ -79,18 +79,18 @@ model {
 	to_vector(X_imag) ~ normal(0,1);
 
 	// Use an improper prior on flux
-	group_flux ~ normal(79000,500);
+	// group_flux ~ normal(79000,500);
 
 	{
 		real dark_flux_value = dark_flux_est;
-		if (use_dark_flux_prior) {
-			dark_flux ~ gamma(dark_alpha, dark_beta);
-			dark_flux_value = dark_flux;
-		}
+		// if (use_dark_flux_prior) {
+		// 	dark_flux ~ gamma(dark_alpha, dark_beta);
+		// 	dark_flux_value = dark_flux;
+		// }
 
 		counts ~ poisson(
 			dark_flux_value +
-			get_flux(group_flux, group_size) .* (Mvec_real * to_vector(rho_real) + Mvec_imag * to_vector(rho_imag))
+		  (Mvec_real * to_vector(rho_real) + Mvec_imag * to_vector(rho_imag))
 		);
 	}
 

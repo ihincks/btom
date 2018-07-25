@@ -1,9 +1,6 @@
 data {
 	int<lower=1> D;											 // Dimension
 	int<lower=1> K;                      // Number of Ginibre subsystems
-
-	vector<lower=0> n_shots;
-	vector<lower=0> results;
 }
 parameters {
 	matrix[D,K] X;
