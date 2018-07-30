@@ -19,6 +19,8 @@ parameters {
 transformed parameters {
 	matrix[D,D] rho_real;
 	matrix[D,D] rho_imag;
+	real x[D*D-1];
+	real y[D*D];
 	real targ = 0;
 
 	{
@@ -35,6 +37,8 @@ transformed parameters {
 		targ += sum(log(X_vec[2:D])) + sum(log1m(X_vec[2:D]));
 		targ += sum(log1m(square(X_vec[D+1:D*D])));
 
+		x = X_vec[2:D*D];
+
 		// perform 2-norm stick breaking and sum jacobian along the way
 		square_sum = square(X_vec[2]);
 		for (i in 3:D*D) {
@@ -44,6 +48,8 @@ transformed parameters {
 		}
 		targ += 0.5 * log1m(square_sum);
 		X_vec[1] = sqrt(1 - square_sum);
+
+		y = X_vec;
 
 		// populate the lower-diagonal cholesky factor
 		for (i in 1:D) {
