@@ -1,26 +1,35 @@
 import numpy as np
 import abc
 import btom.utils as btu
+from itertools import product
+from functools import reduce
 import warnings
 
 __all__ = [
-    'TomographySampler',
-    'StanTomographySampler', 'StanStateSampler',
-    'BinomialGinibreStateSampler', 'PoissonGinibreStateSampler'
+    "TomographySampler",
+    "StanTomographySampler",
+    "StanStateSampler",
+    "BinomialGinibreStateSampler",
+    "PoissonGinibreStateSampler",
+    "MultinomialGinibreStateSampler",
+    "PauliMultinomialSampler",
 ]
 
+
 def cartesian_factors_to_states(x, y):
-    t = lambda z: z.transpose(0,2,1)
+    t = lambda z: z.transpose(0, 2, 1)
     rho_real = np.matmul(x, t(x)) + np.matmul(y, t(y))
     rho_imag = np.matmul(x, t(y)) - np.matmul(y, t(x))
     tr = np.sum(rho_real[(np.s_[:],) + np.diag_indices(self.dim)], axis=-1)
-    return (rho_real + 1j * rho_imag) / tr[:,np.newaxis,np.newaxis]
+    return (rho_real + 1j * rho_imag) / tr[:, np.newaxis, np.newaxis]
+
 
 class TomographySampler(metaclass=abc.ABCMeta):
     """
     Instances of this abstract base class yield samples of a distribution
     over tomography quantities (ie states or processes).
     """
+
     @abc.abstractmethod
     def sample(self, data):
         """
@@ -30,6 +39,7 @@ class TomographySampler(metaclass=abc.ABCMeta):
             with this sampler.
         """
         pass
+
 
 class StanTomographySampler(TomographySampler):
     """
@@ -45,7 +55,10 @@ class StanTomographySampler(TomographySampler):
     :param dict sampling_kwargs: Other named argements to pass to the
         model's sampling method.
     """
-    def __init__(self, stan_model_factory, n_chains=3, n_iter=500, sampling_kwargs=None):
+
+    def __init__(
+        self, stan_model_factory, n_chains=3, n_iter=500, sampling_kwargs=None
+    ):
         self._n_chains = n_chains
         self._n_iter = n_iter
         self._stan_model_factory = stan_model_factory
@@ -118,12 +131,13 @@ class StanTomographySampler(TomographySampler):
             # getting a dumb future warning to do with np.floating; suppress it
             warnings.simplefilter("ignore")
             fit = self.stan_model.sampling(
-                    stan_data,
-                    iter=self.n_iter,
-                    chains=self.n_chains,
-                    **self._sampling_kw_args
-                )
+                stan_data,
+                iter=self.n_iter,
+                chains=self.n_chains,
+                **self._sampling_kw_args
+            )
         return fit
+
 
 class StanStateSampler(StanTomographySampler):
     """
@@ -140,6 +154,7 @@ class StanStateSampler(StanTomographySampler):
     :param dict sampling_kwargs: Other named argements to pass to the
         model's sampling method.
     """
+
     def sample(self, data):
         """
         Samples quantum states using this sampler's stan program.
@@ -154,7 +169,8 @@ class StanStateSampler(StanTomographySampler):
         :rtype: (``np.ndarray``, stan fit)
         """
         fit = self._raw_sample(data.stan_data())
-        return fit['rho_real'] + 1j * fit['rho_imag'], fit
+        return fit["rho_real"] + 1j * fit["rho_imag"], fit
+
 
 class BinomialGinibreStateSampler(StanStateSampler):
     r"""
@@ -172,12 +188,14 @@ class BinomialGinibreStateSampler(StanStateSampler):
     :param dict sampling_kwargs: Other named argements to pass to the
         model's sampling method.
     """
+
     def __init__(self, ginibre_dim=None, n_chains=3, n_iter=500, sampling_kwargs=None):
         super(BinomialGinibreStateSampler, self).__init__(
-                btu.StanModelFactory.load_builtin('binomial-ginibre.stan'),
-                n_chains=n_chains, n_iter=n_iter,
-                sampling_kwargs=sampling_kwargs
-            )
+            btu.StanModelFactory.load_builtin("binomial-ginibre.stan"),
+            n_chains=n_chains,
+            n_iter=n_iter,
+            sampling_kwargs=sampling_kwargs,
+        )
         self._ginibre_dim = ginibre_dim
 
     @property
@@ -198,10 +216,13 @@ class BinomialGinibreStateSampler(StanStateSampler):
         :param dict stan_data: The ``data`` argument passed to the stan model's
             sampler.
         """
-        for key in ['D', 'K', 'm', 'M_real', 'M_imag', 'n', 'k']:
+        for key in ["D", "K", "m", "M_real", "M_imag", "n", "k"]:
             if key not in stan_data:
-                raise ValueError(('This stan data does not contain a '
-                    'necessary entry for {}').format(key))
+                raise ValueError(
+                    (
+                        "This stan data does not contain a " "necessary entry for {}"
+                    ).format(key)
+                )
 
     def modify_stan_data(self, stan_data):
         """
@@ -214,10 +235,11 @@ class BinomialGinibreStateSampler(StanStateSampler):
              to run on this sampler's stan model.
         :rtype: ``dict``
         """
-        stan_data = super(BinomialGinibreStateSampler, self).modify_stan_data(stan_data)
-        K = stan_data['D'] if self.ginibre_dim is None else self.ginibre_dim
-        stan_data['K'] = K
+        stan_data = super().modify_stan_data(stan_data)
+        K = stan_data["D"] if self.ginibre_dim is None else self.ginibre_dim
+        stan_data["K"] = K
         return stan_data
+
 
 class PoissonGinibreStateSampler(StanStateSampler):
     r"""
@@ -232,12 +254,22 @@ class PoissonGinibreStateSampler(StanStateSampler):
     :param dict sampling_kwargs: Other named argements to pass to the
         model's sampling method.
     """
-    def __init__(self, ginibre_dim=None, dark_flux_est=0, dark_flux_std=0, n_chains=3, n_iter=500, sampling_kwargs=None):
+
+    def __init__(
+        self,
+        ginibre_dim=None,
+        dark_flux_est=0,
+        dark_flux_std=0,
+        n_chains=3,
+        n_iter=500,
+        sampling_kwargs=None,
+    ):
         super(PoissonGinibreStateSampler, self).__init__(
-                btu.StanModelFactory.load_builtin('poisson-ginibre.stan'),
-                n_chains=n_chains, n_iter=n_iter,
-                sampling_kwargs=sampling_kwargs
-            )
+            btu.StanModelFactory.load_builtin("poisson-ginibre.stan"),
+            n_chains=n_chains,
+            n_iter=n_iter,
+            sampling_kwargs=sampling_kwargs,
+        )
         self._ginibre_dim = ginibre_dim
         self._dark_flux_est = dark_flux_est
         self._dark_flux_std = dark_flux_std
@@ -260,10 +292,13 @@ class PoissonGinibreStateSampler(StanStateSampler):
         :param dict stan_data: The ``data`` argument passed to the stan model's
             sampler.
         """
-        for key in ['D', 'K', 'm', 'M_real', 'M_imag', 'counts']:
+        for key in ["D", "K", "m", "M_real", "M_imag", "counts"]:
             if key not in stan_data:
-                raise ValueError(('This stan data does not contain a '
-                    'necessary entry for {}').format(key))
+                raise ValueError(
+                    (
+                        "This stan data does not contain a " "necessary entry for {}"
+                    ).format(key)
+                )
 
     def modify_stan_data(self, stan_data):
         """
@@ -277,8 +312,8 @@ class PoissonGinibreStateSampler(StanStateSampler):
         :rtype: ``dict``
         """
         stan_data = super(PoissonGinibreStateSampler, self).modify_stan_data(stan_data)
-        K = stan_data['D'] if self.ginibre_dim is None else self.ginibre_dim
-        stan_data['K'] = K
-        stan_data['dark_flux_est'] = self._dark_flux_est
-        stan_data['dark_flux_std'] = self._dark_flux_std
+        K = stan_data["D"] if self.ginibre_dim is None else self.ginibre_dim
+        stan_data["K"] = K
+        stan_data["dark_flux_est"] = self._dark_flux_est
+        stan_data["dark_flux_std"] = self._dark_flux_std
         return stan_data
