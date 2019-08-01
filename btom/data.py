@@ -1,3 +1,5 @@
+from itertools import product
+from functools import reduce
 import numpy as np
 import btom.bases as btb
 
@@ -6,6 +8,7 @@ __all__ = [
     "StateTomographyData",
     "BinomialTomographyData",
     "PoissonTomographyData",
+    "PauliTomographyData",
 ]
 
 
@@ -228,6 +231,138 @@ class BinomialTomographyData(StateTomographyData):
         sd = super(BinomialTomographyData, self).stan_data(include_est=include_est)
         sd["n"] = self.n_shots
         sd["k"] = self.results
+        return sd
+
+    @classmethod
+    def simulate(cls, true_state, meas_ops, n_shots):
+        """
+        Returns a new :py:class:`BinomialTomographyData` instance with
+        simulated data.
+
+        :param true_state: The true state of the sytem, used to simulate
+            data with. Can be a any array or :py:class:`qutip.Qobj`.
+        :param btom.ArrayList meas_ops: A list of measurement operators, see
+            :py:class:`BinomialTomographyData` for specification.
+        :param n_meas: An integer specifying the number of shots to measure
+             each operator for, or, a list of integers, one for each
+             measurement operator, specifying how many times to measure each.
+
+        :returns: A new data set.
+        :rtype: :py:class:BinomialTomographyData`
+        """
+        probs = StateTomographyData._measurement_results(true_state, meas_ops)
+        if not np.allclose(np.imag(probs), 0):
+            raise ValueError(
+                (
+                    "Some probabilities imaginary; check that"
+                    "your measurements and state are positive semi-definite and "
+                    "less than the identity"
+                )
+            )
+        probs = np.real(probs)
+        if np.sum(np.logical_or(probs < 0, probs > 1)) > 0:
+            raise ValueError(
+                (
+                    "Some probabilities were not in [0,1]; check that"
+                    "your measurements and state are positive semi-definite and "
+                    "less than the identity"
+                )
+            )
+        try:
+            results = np.random.binomial(n_shots, probs)
+        except ValueError as e:
+            if "shape mismatch" in e:
+                raise ValueError(
+                    ("n_shots inconsistent with the number of " "measurement operators")
+                )
+        return BinomialTomographyData(meas_ops, n_shots, results)
+
+
+class PauliTomographyData(StateTomographyData):
+    r"""
+    :param all_results: A dictionary mapping (multi-)pauli strings to dictionaries of
+        bitstring shot counts. E.g. for a single qubit,
+        ``{"X": {"0": 30, "1": 70}, "Z": {"0": 30, "1": 70}, "Z": {"0": 30, "1": 70}}``
+    """
+
+    _PAULIS = {
+        "I": np.eye(2),
+        "X": np.array([[0, 1], [1, 0]]),
+        "Y": np.array([[0, -1j], [1j, 0]]),
+        "Z": np.diag([1, -1]),
+    }
+
+    def __init__(self, all_results):
+
+        n_sys = len(next(iter(all_results)))
+        n_paulis = len(all_results)
+        d = 2 ** n_sys
+
+        counts = np.empty((n_paulis, d), dtype=np.int)
+        meas_ops = np.empty((n_paulis, d, d, d), dtype=np.complex128)
+        names = []
+        for idx_m, pauli in enumerate(all_results):
+            all_vecs = np.linalg.eig([PauliTomographyData._PAULIS[p] for p in pauli])[1]
+            for idx_p, vecs in enumerate(product(*(vecs.T for vecs in all_vecs))):
+                vec = reduce(np.kron, vecs)
+                meas_ops[idx_m, idx_p, :, :] = np.outer(vec, vec.conj())
+
+            results = all_results[pauli]
+            counts[idx_m, :] = [
+                results.get("".join(x), 0) for x in product("01", repeat=n_sys)
+            ]
+
+            names.append(pauli)
+
+        self._dim = d
+        self._counts = counts
+        self._all_results = all_results
+        self._meas_ops = btb.ArrayList(meas_ops, names)
+
+    @property
+    def n_shots(self):
+        return self._n_shots
+
+    @property
+    def all_results(self):
+        return self._all_results
+
+    @property
+    def counts(self):
+        return self._counts
+
+    def ls_bs_estimates(self, n_bs=500):
+        # expand each measurement op in terms of orthonormal hermitian basis
+        basis = btb.gell_mann_basis(self.dim, normalize=True)
+        X = np.real(basis.expand(self.meas_ops).T)
+
+        # estimate of each measurement's overlap with the state
+        # hedge a bit to avoid 0 variance
+        y = (self.results + 0.5) / (self.n_shots + 1)
+        # draw bootstrap samples
+        results_bs = np.random.binomial(self.n_shots, y, size=(n_bs, self.n_meas_ops))
+        y_bs = (results_bs + 0.5) / (self.n_shots + 1)
+
+        # we assume unit trace density matrices, thus we know coeff on this
+        # basis element is 1/sqrt(d). thus, subtract it off the RHS to
+        # avoid making it a fit parameter.
+        y -= X[:, 0] / np.sqrt(self.dim)
+        y_bs -= X[:, 0] / np.sqrt(self.dim)
+        X = X[:, 1:]
+
+        # for some reason this is faster than np.linalg.pinv for me
+        Xinv = np.dot(np.linalg.inv(np.dot(X.T, X)), X.T)
+
+        # return estimate of state in standard basis
+        mats_bs = basis[1:].construct(np.dot(y_bs, Xinv)) + np.eye(self.dim) / self.dim
+        mat = basis[1:].construct(np.dot(Xinv, y)) + np.eye(self.dim) / self.dim
+
+        return mat, mats_bs
+
+    def stan_data(self, include_est=False):
+        sd = super().stan_data(include_est=include_est)
+        sd["k"] = self.counts
+        sd["p"] = self.dim
         return sd
 
     @classmethod

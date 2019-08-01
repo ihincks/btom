@@ -1,8 +1,6 @@
 import numpy as np
 import abc
 import btom.utils as btu
-from itertools import product
-from functools import reduce
 import warnings
 
 __all__ = [
@@ -12,7 +10,6 @@ __all__ = [
     "BinomialGinibreStateSampler",
     "PoissonGinibreStateSampler",
     "MultinomialGinibreStateSampler",
-    "PauliMultinomialSampler",
 ]
 
 
@@ -217,6 +214,73 @@ class BinomialGinibreStateSampler(StanStateSampler):
             sampler.
         """
         for key in ["D", "K", "m", "M_real", "M_imag", "n", "k"]:
+            if key not in stan_data:
+                raise ValueError(
+                    (
+                        "This stan data does not contain a " "necessary entry for {}"
+                    ).format(key)
+                )
+
+    def modify_stan_data(self, stan_data):
+        """
+        Modifies the ``stan_data`` dictionary prior to sampling by updating it
+        with :py:attr:`ginibre_dim`.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        :returns: An updated ``stan_data`` dictionary that should be valid
+             to run on this sampler's stan model.
+        :rtype: ``dict``
+        """
+        stan_data = super().modify_stan_data(stan_data)
+        K = stan_data["D"] if self.ginibre_dim is None else self.ginibre_dim
+        stan_data["K"] = K
+        return stan_data
+
+
+class MultinomialGinibreStateSampler(StanStateSampler):
+    r"""
+    A :py:class:`StanStateSampler` whose measurements are
+    POVMs :math:`\{M_1,\ldots,M_m\}`.
+
+    :param int ginibre_dim: The maximum rank of density operators with
+        prior support. If ``None``, the dimension of the Hilbert space will
+        be used, so that maximum rank is supported.
+    :param int n_chains: The number of MCMC chains to run when sampling.
+    :param int n_iter: The number of iterations per chain. This includes
+        burn-in, so only half of this number will be reported per chain.
+    :param dict sampling_kwargs: Other named argements to pass to the
+        model's sampling method.
+    """
+
+    def __init__(self, ginibre_dim=None, n_chains=3, n_iter=500, sampling_kwargs=None):
+        super().__init__(
+            btu.StanModelFactory.load_builtin("multinomial-ginibre.stan"),
+            n_chains=n_chains,
+            n_iter=n_iter,
+            sampling_kwargs=sampling_kwargs,
+        )
+        self._ginibre_dim = ginibre_dim
+
+    @property
+    def ginibre_dim(self):
+        """
+        The maximum rank of density operators with prior support.
+
+        :type: ``int``
+        """
+        return self._ginibre_dim
+
+    def check_data(self, stan_data):
+        """
+        Checks goodness given ``stan_data`` dictionary relative to this sampler;
+        this method is run before sampling, and raises errors if it
+        detects problems.
+
+        :param dict stan_data: The ``data`` argument passed to the stan model's
+            sampler.
+        """
+        for key in ["D", "K", "m", "p", "M_real", "M_imag", "k"]:
             if key not in stan_data:
                 raise ValueError(
                     (
