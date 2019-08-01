@@ -1,0 +1,6 @@
+pystan>=2.19
+matplotlib>=2.0
+dill
+statsmodels
+numpy>=1.16
+qutip
